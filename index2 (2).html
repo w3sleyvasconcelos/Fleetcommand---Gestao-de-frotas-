@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>FleetCommand — Gestão de Frotas</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23185FA5'/><text y='72' x='50' text-anchor='middle' font-size='60'>🚛</text></svg>">
+<meta name="theme-color" content="#185FA5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FleetCommand">
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f5f5f3;color:#1a1a1a;min-height:100vh;margin:0;padding:0}
+input,select,button{font-family:inherit}
+input,select{padding:6px 9px;border-radius:7px;border:1px solid #d0d0cc;font-size:12px;background:#fff;color:#1a1a1a;width:100%}
+input:focus,select:focus{outline:2px solid #185FA5;outline-offset:1px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:8px;background:#f5f5f3;border-bottom:1px solid #e0e0da;color:#666;font-size:11px;font-weight:500;white-space:nowrap}
+td{padding:8px;border-bottom:1px solid #ebebea;vertical-align:middle}
+.ec{padding:4px!important;background:#eef4fb!important;vertical-align:middle!important}
+.btn{padding:6px 13px;border-radius:7px;cursor:pointer;font-size:12px;border:1px solid #d0d0cc;background:transparent;color:#1a1a1a}
+.btnp{background:#185FA5;color:#fff;border-color:#185FA5}
+.btns{background:#1D9E75;color:#fff;border-color:#1D9E75}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:500}
+.card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;padding:1rem 1.25rem;margin-bottom:14px}
+.metric{background:#f5f5f3;border-radius:8px;padding:.8rem 1rem}
+.toast{position:fixed;bottom:24px;right:24px;background:#1D9E75;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;display:none}
+.err{background:#E24B4A!important}
+.ox{overflow-x:auto}
+.spin{display:inline-block;width:28px;height:28px;border:3px solid #185FA5;border-top-color:transparent;border-radius:50%;animation:sp .6s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="app" style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px">
+  <div class="spin"></div>
+  <span style="color:#666;font-size:13px">Conectando...</span>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const SB = supabase.createClient(
+  'https://jrmocioibhnxfrjkoxnh.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpybW9jaW9pYmhueGZyamtveG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjY1ODMsImV4cCI6MjA5MTk0MjU4M30.3tlIaNX2bmvSnzZYiWmLYrpfZ6WpBNauK_xFjAlN56k'
+);
+
+const CATS = [
+  {id:'combustivel',label:'Combustível',color:'#E24B4A',bg:'#FCEBEB'},
+  {id:'manutencao',label:'Manutenção Frota',color:'#185FA5',bg:'#E6F1FB'},
+  {id:'lavagem',label:'Lavagem',color:'#1D9E75',bg:'#E1F5EE'},
+  {id:'pneu_aquisicao',label:'Pneus Aquisição',color:'#BA7517',bg:'#FAEEDA'},
+  {id:'pneu_servico',label:'Pneus Serviços',color:'#533CB7',bg:'#EEEDFE'},
+  {id:'padronizacao',label:'Padronização Frota',color:'#5F5E5A',bg:'#F1EFE8'}
+];
+const TIPOS = ['Caminhão','Van','Carro','Moto','Utilitário'];
+const ATIPS = ['IPVA','Seguro','Revisão','CNH','Licenciamento','Cronotacógrafo','ANTT','Despoluir','Laudo Plataforma','Alinhamento','Outros'];
+const TABS = [{l:'Painel Geral',i:'▦'},{l:'Veículos',i:'🚛'},{l:'Ordens de Serviço',i:'📋'},{l:'Fornecedores',i:'🏭'},{l:'Alertas',i:'🔔'},{l:'Orçamento',i:'💰'}];
+
+// ESTADO
+let ST = {v:[],f:[],os:[],al:[],orc:{},tab:0,mes:new Date().toISOString().slice(0,7),cat:''};
+let ED = {vId:null,vD:{},fId:null,fD:{},osId:null,osD:{},aId:null,aD:{}};
+
+// UTILS
+const fmt = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = (a,b) => b > 0 ? Math.round(a/b*100) : 0;
+const nmMes = m => { const [y,mo] = m.split('-'); return new Date(y,mo-1,1).toLocaleString('pt-BR',{month:'long',year:'numeric'}); };
+const bdg = (t,c,bg) => '<span class="badge" style="color:'+c+';background:'+bg+'">'+t+'</span>';
+const toast = (m,e) => { const t=document.getElementById('toast'); t.textContent=m; t.className='toast'+(e?' err':''); t.style.display='block'; setTimeout(()=>t.style.display='none',3000); };
+
+// ============================================================
+// REGRA ÚNICA DE ORÇAMENTO:
+// OS aparece e consome orçamento APENAS pelo campo mes_referencia
+// Status = apenas informativo (conta abertas/fechadas no painel)
+// Saída/Entrada = apenas anotação pessoal
+// ============================================================
+const osDoMes = () => ST.os.filter(o => o.mes_referencia === ST.mes);
+const osDoMesCat = () => ST.cat ? osDoMes().filter(o => o.categoria === ST.cat) : osDoMes();
+
+function somaGrupo(lista, campo) {
+  const g = {};
+  ST.v.forEach(x => g[x.id] = 0);
+  ST.f.forEach(x => g[x.id] = 0);
+  CATS.forEach(x => g[x.id] = 0);
+  lista.forEach(o => { if(g[o[campo]] !== undefined) g[o[campo]] += Number(o.valor||0); });
+  return g;
+}
+
+const gCat = () => somaGrupo(osDoMesCat(), 'categoria');
+const gV   = () => somaGrupo(osDoMesCat(), 'veiculo_id');
+const gF   = () => somaGrupo(osDoMesCat(), 'fornecedor_id');
+const tGasto = () => CATS.reduce((s,c) => s + (gCat()[c.id]||0), 0);
+const orcMes = () => ST.cat ? {[ST.cat]: ST.orc[ST.cat]||0} : ST.orc;
+const tOrc = () => Object.values(orcMes()).reduce((a,b) => a + Number(b), 0);
+
+// LOAD
+async function load() {
+  const [v,f,os,al,orc] = await Promise.all([
+    SB.from('veiculos').select('*').order('criado_em'),
+    SB.from('fornecedores').select('*').order('criado_em'),
+    SB.from('ordens_servico').select('*').order('criado_em'),
+    SB.from('alertas').select('*').order('vencimento'),
+    SB.from('orcamentos').select('*').eq('mes_ano', ST.mes)
+  ]);
+  ST.v=v.data||[]; ST.f=f.data||[]; ST.os=os.data||[]; ST.al=al.data||[];
+  ST.orc={}; (orc.data||[]).forEach(x => ST.orc[x.categoria] = x.valor);
+  render();
+}
+
+// SALVAR
+async function salvV() {
+  const d = {...ED.vD, km:parseInt(ED.vD.km)||0, ano:parseInt(ED.vD.ano)||2024};
+  if(ED.vId==='new'){delete d.id; const{error}=await SB.from('veiculos').insert(d); if(error) return toast('Erro: '+error.message,true);}
+  else { const{error}=await SB.from('veiculos').update(d).eq('id',ED.vId); if(error) return toast('Erro: '+error.message,true); }
+  ED.vId=null; toast('Veículo salvo!'); await load();
+}
+async function salvF() {
+  const d = {...ED.fD};
+  if(ED.fId==='new'){delete d.id; const{error}=await SB.from('fornecedores').insert(d); if(error) return toast('Erro: '+error.message,true);}
+  else { const{error}=await SB.from('fornecedores').update(d).eq('id',ED.fId); if(error) return toast('Erro: '+error.message,true); }
+  ED.fId=null; toast('Fornecedor salvo!'); await load();
+}
+async function salvOS() {
+  const d = {...ED.osD, valor:parseFloat(ED.osD.valor)||0};
+  d.data_abertura = d.data_abertura || null;
+  d.data_fechamento = d.data_fechamento || null;
+  if(!d.veiculo_id) return toast('Selecione um veículo',true);
+  if(!d.fornecedor_id) return toast('Selecione um fornecedor',true);
+  if(!d.mes_referencia) return toast('Selecione o mês de referência',true);
+  if(ED.osId==='new'){delete d.id; const{error}=await SB.from('ordens_servico').insert(d); if(error) return toast('Erro: '+error.message,true);}
+  else { const{error}=await SB.from('ordens_servico').update(d).eq('id',ED.osId); if(error) return toast('Erro: '+error.message,true); }
+  ED.osId=null; toast('OS salva!'); await load();
+}
+async function salvA() {
+  const d = {...ED.aD}; delete d.id;
+  if(!d.veiculo_id||!d.vencimento) return toast('Preencha veículo e vencimento',true);
+  const{error}=await SB.from('alertas').insert(d); if(error) return toast('Erro: '+error.message,true);
+  ED.aId=null; toast('Alerta salvo!'); await load();
+}
+async function remA(id) { await SB.from('alertas').delete().eq('id',id); toast('Removido'); await load(); }
+async function salvOrc(cat,val) {
+  const valor = parseFloat(val)||0;
+  const{error}=await SB.from('orcamentos').upsert({categoria:cat,mes_ano:ST.mes,valor,atualizado_em:new Date().toISOString()},{onConflict:'categoria,mes_ano'});
+  if(error) return toast('Erro: '+error.message,true);
+  ST.orc[cat]=valor; render(); toast('Orçamento salvo!');
+}
+
+function pbar(real,orc,color) {
+  const p = Math.min(pct(real,orc),100);
+  const c = pct(real,orc)>100?'#E24B4A':pct(real,orc)>80?'#BA7517':color;
+  return '<div style="height:10px;border-radius:4px;background:#ebebea;overflow:hidden;margin:3px 0 2px"><div style="height:100%;width:'+p+'%;background:'+c+'"></div></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:10px;color:#888"><span>'+fmt(real)+'</span><span>'+pct(real,orc)+'% de '+fmt(orc)+'</span></div>';
+}
+
+function mesOpts(sel) {
+  const h = new Date(); let r = '<option value="">-- Mês de referência --</option>';
+  for(let i=-6;i<=12;i++){
+    const d = new Date(h.getFullYear(),h.getMonth()+i,1);
+    const v = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    r += '<option value="'+v+'"'+(v===sel?' selected':'')+'>'+nmMes(v)+'</option>';
+  }
+  return r;
+}
+
+function stAl(d) {
+  const dias = Math.ceil((new Date(d+'T00:00:00') - new Date().setHours(0,0,0,0))/86400000);
+  if(dias<0) return {l:'Vencido',c:'#E24B4A',bg:'#FCEBEB'};
+  if(dias<=30) return {l:dias+'d',c:'#BA7517',bg:'#FAEEDA'};
+  return {l:dias+'d',c:'#1D9E75',bg:'#E1F5EE'};
+}
+
+function mkVeicOpts(sel) {
+  let r = '<option value="">-- Veículo --</option>';
+  ST.v.forEach(v => r += '<option value="'+v.id+'"'+(v.id===sel?' selected':'')+'>'+v.placa+'</option>');
+  r += '<optgroup label="─────"><option value="oficina"'+(sel==='oficina'?' selected':'')+'>🔧 Oficina</option><option value="estoque"'+(sel==='estoque'?' selected':'')+'>📦 Estoque</option></optgroup>';
+  return r;
+}
+function mkFornOpts(sel) {
+  let r = '<option value="">-- Fornecedor --</option>';
+  ST.f.forEach(f => r += '<option value="'+f.id+'"'+(f.id===sel?' selected':'')+'>'+f.nome+'</option>');
+  return r;
+}
+function mkCatOpts(sel) {
+  return CATS.map(c => '<option value="'+c.id+'"'+(c.id===sel?' selected':'')+'>'+c.label+'</option>').join('');
+}
+
+function render() {
+  const gc=gCat(), gv=gV(), gf=gF(), tg=tGasto(), to=tOrc();
+  const osMes = osDoMes();
+  const osAb  = osMes.filter(o=>o.status==='Aberta').length;
+  const osFch = osMes.filter(o=>o.status==='Fechada').length;
+  const catsEx = ST.cat ? CATS.filter(c=>c.id===ST.cat) : CATS;
+
+  // HEADER
+  let tabBtns = '';
+  TABS.forEach((t,i) => { tabBtns += '<button onclick="setTab('+i+')" style="display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:'+(ST.tab===i?500:400)+';background:'+(ST.tab===i?'#185FA5':'transparent')+';color:'+(ST.tab===i?'#fff':'#888')+'">'+t.i+' '+t.l+'</button>'; });
+
+  let catBtns = '<button onclick="setCat(\'\')" style="padding:5px 11px;border-radius:7px;cursor:pointer;font-size:12px;border:'+(ST.cat===''?'none':'1px solid #d0d0cc')+';background:'+(ST.cat===''?'#185FA5':'transparent')+';color:'+(ST.cat===''?'#fff':'#1a1a1a')+'">Todos</button>';
+  CATS.forEach(c => { catBtns += '<button onclick="setCat(\''+c.id+'\')" style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:7px;cursor:pointer;font-size:12px;border:'+(ST.cat===c.id?'none':'1px solid #d0d0cc')+';background:'+(ST.cat===c.id?c.color:'transparent')+';color:'+(ST.cat===c.id?'#fff':'#1a1a1a')+'"><span style="width:8px;height:8px;border-radius:2px;background:'+(ST.cat===c.id?'#fff':c.color)+'"></span>'+c.label+'</button>'; });
+
+  const header = '<div id="topo" style="position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #e8e8e4;padding:0 1.5rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap">'
+    +'<div style="display:flex;align-items:center;gap:10px;padding:.85rem 0"><div style="width:36px;height:36px;border-radius:10px;background:#185FA5;display:flex;align-items:center;justify-content:center;font-size:18px">🚛</div>'
+    +'<div><div style="font-weight:600;font-size:15px">FleetCommand</div><div style="font-size:10px;color:#888;letter-spacing:.5px;text-transform:uppercase">Gestão de Frotas</div></div></div>'
+    +'<div style="display:flex;gap:2px;flex-wrap:wrap;padding:.5rem 0">'+tabBtns+'</div></div>';
+
+  const filtroBar = '<div class="card" style="padding:.8rem 1.25rem">'
+    +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<span style="font-size:12px;font-weight:500;color:#666">📅 Mês:</span>'
+    +'<input type="month" value="'+ST.mes+'" onchange="setMes(this.value)" style="width:155px;font-weight:500;color:#185FA5;border-color:#185FA5">'
+    +'<span style="font-size:12px;font-weight:500;color:#185FA5;text-transform:capitalize">'+nmMes(ST.mes)+'</span>'
+    +'<span style="margin-left:auto;font-size:11px;color:#888">'+osMes.length+' OS · '+osFch+' fechadas · '+osAb+' abertas</span>'
+    +'</div>'
+    +(ST.tab===0?'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #ebebea"><span style="font-size:12px;font-weight:500;color:#666">📊 Categoria:</span>'+catBtns+'</div>':'')
+    +'</div>';
+
+  let content = '';
+
+  // ── PAINEL GERAL ──
+  if(ST.tab===0) {
+    const vSort = [...ST.v].sort((a,b)=>(gv[b.id]||0)-(gv[a.id]||0));
+    const fSort = [...ST.f].sort((a,b)=>(gf[b.id]||0)-(gf[a.id]||0));
+    const osTop = [...osDoMesCat()].sort((a,b)=>b.valor-a.valor).slice(0,6);
+
+    let metrics = '';
+    [{l:'Total gasto',v:fmt(tg),c:'#E24B4A'},{l:'Orçamento do mês',v:fmt(to),c:'#185FA5'},{l:'Saldo disponível',v:fmt(to-tg),c:to-tg>=0?'#1D9E75':'#E24B4A'},{l:'OS fechadas',v:osFch,c:'#1D9E75'},{l:'OS abertas',v:osAb,c:'#BA7517'}]
+      .forEach(x => { metrics += '<div class="metric"><div style="font-size:11px;color:#666;margin-bottom:3px">'+x.l+'</div><div style="font-size:20px;font-weight:500;color:'+x.c+'">'+x.v+'</div></div>'; });
+
+    let catBars = '';
+    catsEx.forEach(cat => {
+      catBars += '<div style="margin-bottom:13px"><div style="display:flex;align-items:center;gap:5px;font-size:12px;margin-bottom:2px"><span style="width:9px;height:9px;border-radius:2px;background:'+cat.color+';display:inline-block"></span>'+cat.label+'</div>'+pbar(gc[cat.id]||0,Number(ST.orc[cat.id]||0),cat.color)+'</div>';
+    });
+
+    let vBars = '';
+    vSort.forEach((v,i) => {
+      vBars += '<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:1px"><span><b style="color:'+(i===0?'#E24B4A':'#888')+'">#'+(i+1)+'</b> '+v.placa+' — '+v.modelo+'</span><b style="color:#E24B4A">'+fmt(gv[v.id]||0)+'</b></div><div style="height:7px;border-radius:4px;background:#ebebea;overflow:hidden"><div style="height:100%;width:'+pct(gv[v.id]||0,tg)+'%;background:'+(i===0?'#E24B4A':'#185FA5')+'"></div></div></div>';
+    });
+
+    let fRows = '';
+    fSort.forEach((f,i) => { fRows += '<tr><td><b style="color:'+(i===0?'#E24B4A':'#888')+'">'+(i+1)+'</b></td><td>'+f.nome+'</td><td><b style="color:#E24B4A">'+fmt(gf[f.id]||0)+'</b></td><td>'+pct(gf[f.id]||0,tg)+'%</td></tr>'; });
+
+    let osRows = '';
+    osTop.forEach(o => {
+      const cat = CATS.find(c=>c.id===o.categoria)||{label:'—',color:'#888',bg:'#eee'};
+      osRows += '<tr><td>'+bdg(o.numero||'—','#533CB7','#EEEDFE')+'</td><td>'+( o.descricao||'')+'</td><td>'+bdg(cat.label,cat.color,cat.bg)+'</td><td><b style="color:#E24B4A">'+fmt(o.valor)+'</b></td></tr>';
+    });
+
+    let alertCards = '';
+    ST.al.forEach(a => {
+      const v = ST.v.find(x=>x.id===a.veiculo_id);
+      const s = stAl(a.vencimento);
+      alertCards += '<div style="background:'+s.bg+';border-radius:10px;padding:10px 14px;min-width:140px"><div style="font-size:11px;color:'+s.c+';font-weight:500">'+a.tipo+'</div><div style="font-size:13px;font-weight:500">'+(v?v.placa:'—')+'</div><div style="font-size:11px;color:#888">'+a.vencimento+'</div>'+bdg(s.l==='Vencido'?'Vencido':'Em '+s.l,s.c,'transparent')+'</div>';
+    });
+
+    content = (ST.cat?'<div class="card" style="background:'+CATS.find(c=>c.id===ST.cat).bg+';border-color:'+CATS.find(c=>c.id===ST.cat).color+'60;padding:.7rem 1.25rem;display:flex;align-items:center;gap:10px"><b style="color:'+CATS.find(c=>c.id===ST.cat).color+'">'+CATS.find(c=>c.id===ST.cat).label+'</b><button class="btn" onclick="setCat(\'\')" style="margin-left:auto">✕ Ver todos</button></div>':'')
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">'+metrics+'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px"><div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:12px">Orçamento por categoria</div>'+catBars+'</div><div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:12px">Impacto por veículo</div>'+vBars+'</div></div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px"><div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:12px">Fornecedores por impacto</div><table><thead><tr><th>#</th><th>Fornecedor</th><th>Total</th><th>%</th></tr></thead><tbody>'+fRows+'</tbody></table></div>'
+      +'<div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:12px">OS mais caras do mês</div><table><thead><tr><th>OS</th><th>Descrição</th><th>Cat.</th><th>Valor</th></tr></thead><tbody>'+osRows+'</tbody></table></div></div>'
+      +'<div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:12px">Alertas de vencimento</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+alertCards+'</div></div>';
+  }
+
+  // ── VEÍCULOS ──
+  else if(ST.tab===1) {
+    let rows = '';
+    if(ED.vId==='new') {
+      rows += '<tr style="background:#eef4fb"><td class="ec"><input autocomplete="off" value="'+(ED.vD.placa||'')+'" oninput="upd(\'v\',\'placa\',this.value)" placeholder="Placa" style="width:90px"></td><td class="ec"><input autocomplete="off" value="'+(ED.vD.modelo||'')+'" oninput="upd(\'v\',\'modelo\',this.value)" placeholder="Modelo"></td><td class="ec"><input type="number" value="'+(ED.vD.ano||2024)+'" oninput="upd(\'v\',\'ano\',this.value)" style="width:65px"></td><td class="ec"><input type="number" value="'+(ED.vD.km||0)+'" oninput="upd(\'v\',\'km\',this.value)" style="width:80px"></td><td class="ec"><input autocomplete="off" value="'+(ED.vD.responsavel||'')+'" oninput="upd(\'v\',\'responsavel\',this.value)" placeholder="Responsável"></td><td class="ec"><select oninput="upd(\'v\',\'tipo\',this.value)">'+TIPOS.map(t=>'<option'+(t===ED.vD.tipo?' selected':'')+'>'+t+'</option>').join('')+'</select></td><td class="ec"><button class="btn btns" onclick="salvarV()">Salvar</button> <button class="btn" onclick="canc(\'v\')">Cancelar</button></td></tr>';
+    }
+    ST.v.forEach(v => {
+      if(ED.vId===v.id) {
+        rows += '<tr style="background:#eef4fb"><td class="ec"><input autocomplete="off" value="'+(ED.vD.placa||'')+'" oninput="upd(\'v\',\'placa\',this.value)" style="width:90px"></td><td class="ec"><input autocomplete="off" value="'+(ED.vD.modelo||'')+'" oninput="upd(\'v\',\'modelo\',this.value)"></td><td class="ec"><input type="number" value="'+(ED.vD.ano||'')+'" oninput="upd(\'v\',\'ano\',this.value)" style="width:65px"></td><td class="ec"><input type="number" value="'+(ED.vD.km||'')+'" oninput="upd(\'v\',\'km\',this.value)" style="width:80px"></td><td class="ec"><input autocomplete="off" value="'+(ED.vD.responsavel||'')+'" oninput="upd(\'v\',\'responsavel\',this.value)"></td><td class="ec"><select oninput="upd(\'v\',\'tipo\',this.value)">'+TIPOS.map(t=>'<option'+(t===ED.vD.tipo?' selected':'')+'>'+t+'</option>').join('')+'</select></td><td class="ec"><button class="btn btns" onclick="salvarV()">Salvar</button> <button class="btn" onclick="canc(\'v\')">Cancelar</button></td></tr>';
+      } else {
+        rows += '<tr><td><b>'+v.placa+'</b></td><td>'+v.modelo+'</td><td>'+v.ano+'</td><td>'+Number(v.km||0).toLocaleString('pt-BR')+' km</td><td>'+(v.responsavel||'—')+'</td><td>'+bdg(v.tipo,'#185FA5','#E6F1FB')+'</td><td><button class="btn" onclick="editV(\''+v.id+'\')">Editar</button></td></tr>';
+      }
+    });
+    content = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:14px;font-weight:500">Veículos cadastrados</div><button class="btn btnp" onclick="novoV()">+ Novo veículo</button></div><div class="ox"><table><thead><tr><th>Placa</th><th>Modelo</th><th>Ano</th><th>KM</th><th>Responsável</th><th>Tipo</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+  }
+
+  // ── ORDENS DE SERVIÇO ──
+  else if(ST.tab===2) {
+    const todas = [...ST.os].sort((a,b)=>b.valor-a.valor);
+
+    function mkOSEditRow(d) {
+      return '<tr style="background:#eef4fb">'
+        +'<td class="ec"><input autocomplete="off" value="'+(d.numero||'')+'" oninput="upd(\'os\',\'numero\',this.value)" style="width:100px"></td>'
+        +'<td class="ec"><select onchange="upd(\'os\',\'veiculo_id\',this.value)" style="width:105px">'+mkVeicOpts(d.veiculo_id)+'</select></td>'
+        +'<td class="ec"><select onchange="upd(\'os\',\'categoria\',this.value)" style="width:115px">'+mkCatOpts(d.categoria)+'</select></td>'
+        +'<td class="ec"><input autocomplete="off" value="'+(d.descricao||'')+'" oninput="upd(\'os\',\'descricao\',this.value)" placeholder="Descrição" style="width:120px"></td>'
+        +'<td class="ec"><select onchange="upd(\'os\',\'fornecedor_id\',this.value)" style="width:115px">'+mkFornOpts(d.fornecedor_id)+'</select></td>'
+        +'<td class="ec"><input autocomplete="off" value="'+(d.nf||'')+'" oninput="upd(\'os\',\'nf\',this.value)" placeholder="NF" style="width:80px"></td>'
+        +'<td class="ec"><input autocomplete="off" value="'+(d.conta_orcamentaria||'')+'" oninput="upd(\'os\',\'conta_orcamentaria\',this.value)" placeholder="Conta" style="width:80px"></td>'
+        +'<td class="ec"><input type="date" value="'+(d.data_abertura||'')+'" onchange="upd(\'os\',\'data_abertura\',this.value)" style="width:108px" title="Apenas anotação"></td>'
+        +'<td class="ec"><input type="date" value="'+(d.data_fechamento||'')+'" onchange="upd(\'os\',\'data_fechamento\',this.value)" style="width:108px" title="Apenas anotação"></td>'
+        +'<td class="ec"><select onchange="upd(\'os\',\'status\',this.value)" style="width:85px"><option'+(d.status==='Aberta'?' selected':'')+'>Aberta</option><option'+(d.status==='Fechada'?' selected':'')+'>Fechada</option></select></td>'
+        +'<td class="ec" style="background:#E1F5EE"><select onchange="upd(\'os\',\'mes_referencia\',this.value)" style="width:145px;border-color:#1D9E75">'+mesOpts(d.mes_referencia)+'</select>'
+        +(!d.mes_referencia?'<div style="font-size:9px;color:#E24B4A;margin-top:2px">⚠️ Obrigatório</div>':'')+'</td>'
+        +'<td class="ec"><input type="number" value="'+(d.valor||'')+'" oninput="upd(\'os\',\'valor\',this.value)" placeholder="Valor" style="width:85px"></td>'
+        +'<td class="ec"><button class="btn btns" onclick="salvarOS()">Salvar</button> <button class="btn" onclick="canc(\'os\')">✕</button></td>'
+        +'</tr>';
+    }
+
+    let rows = ED.osId==='new' ? mkOSEditRow(ED.osD) : '';
+    todas.forEach(o => {
+      if(ED.osId===o.id) { rows += mkOSEditRow(ED.osD); return; }
+      const vl = o.veiculo_id==='oficina'?'🔧 Oficina':o.veiculo_id==='estoque'?'📦 Estoque':(ST.v.find(x=>x.id===o.veiculo_id)||{}).placa||'—';
+      const f  = ST.f.find(x=>x.id===o.fornecedor_id)||{};
+      const cat= CATS.find(c=>c.id===o.categoria)||{label:'—',color:'#888',bg:'#eee'};
+      rows += '<tr>'
+        +'<td>'+bdg(o.numero||'—','#533CB7','#EEEDFE')+'</td>'
+        +'<td>'+vl+'</td>'
+        +'<td>'+bdg(cat.label,cat.color,cat.bg)+'</td>'
+        +'<td>'+(o.descricao||'')+'</td>'
+        +'<td>'+(f.nome||'—')+'</td>'
+        +'<td>'+(o.nf||'')+'</td>'
+        +'<td>'+(o.conta_orcamentaria||'')+'</td>'
+        +'<td style="color:#888;font-size:11px">'+(o.data_abertura||'—')+'</td>'
+        +'<td style="color:#888;font-size:11px">'+(o.data_fechamento||'—')+'</td>'
+        +'<td>'+bdg(o.status,o.status==='Fechada'?'#1D9E75':'#BA7517',o.status==='Fechada'?'#E1F5EE':'#FAEEDA')+'</td>'
+        +'<td style="background:'+(o.mes_referencia?'#E1F5EE':'#FCEBEB')+'">'+(o.mes_referencia?'<b style="color:#1D9E75;font-size:11px">'+nmMes(o.mes_referencia)+'</b>':'<span style="color:#E24B4A;font-size:11px">⚠️ sem mês</span>')+'</td>'
+        +'<td><b style="color:#E24B4A">'+fmt(o.valor)+'</b></td>'
+        +'<td><button class="btn" onclick="editOS(\''+o.id+'\')">Editar</button></td>'
+        +'</tr>';
+    });
+
+    content = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+      +'<div><div style="font-size:14px;font-weight:500;margin-bottom:2px">Ordens de Serviço — '+ST.os.length+' total</div>'
+      +'<div style="font-size:11px;color:#888">Mês selecionado: '+osMes.length+' OS · '+osFch+' fechadas · '+osAb+' abertas</div></div>'
+      +'<button class="btn btnp" onclick="novaOS()">+ Nova OS</button></div>'
+      +'<div class="ox"><table><thead><tr><th>Nº OS</th><th>Veículo</th><th>Categoria</th><th>Descrição</th><th>Fornecedor</th><th>NF</th><th>Conta Orc.</th><th title="Apenas anotação pessoal">Saída ℹ️</th><th title="Apenas anotação pessoal">Entrada ℹ️</th><th>Status</th><th style="background:#E1F5EE;color:#1D9E75">Mês Ref. ★</th><th>Valor</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+  }
+
+  // ── FORNECEDORES ──
+  else if(ST.tab===3) {
+    const fSort = [...ST.f].sort((a,b)=>(gf[b.id]||0)-(gf[a.id]||0));
+    let rows = '';
+    if(ED.fId==='new') {
+      rows += '<tr style="background:#eef4fb"><td class="ec">novo</td><td class="ec"><input autocomplete="off" value="'+(ED.fD.nome||'')+'" oninput="upd(\'f\',\'nome\',this.value)" placeholder="Nome"></td><td class="ec"><input autocomplete="off" value="'+(ED.fD.cnpj||'')+'" oninput="upd(\'f\',\'cnpj\',this.value)" placeholder="CNPJ"></td><td class="ec"><input autocomplete="off" value="'+(ED.fD.contato||'')+'" oninput="upd(\'f\',\'contato\',this.value)" placeholder="Contato"></td><td class="ec"><select oninput="upd(\'f\',\'categoria\',this.value)">'+mkCatOpts(ED.fD.categoria)+'</select></td><td class="ec"><input autocomplete="off" value="'+(ED.fD.maps_link||'')+'" oninput="upd(\'f\',\'maps_link\',this.value)" placeholder="https://maps.google.com/..."></td><td class="ec">—</td><td class="ec"><button class="btn btns" onclick="salvarF()">Salvar</button> <button class="btn" onclick="canc(\'f\')">Cancelar</button></td></tr>';
+    }
+    fSort.forEach((f,i) => {
+      const cat = CATS.find(c=>c.id===f.categoria)||{label:'—',color:'#888',bg:'#eee'};
+      if(ED.fId===f.id) {
+        rows += '<tr style="background:#eef4fb"><td class="ec">'+(i+1)+'</td><td class="ec"><input autocomplete="off" value="'+(ED.fD.nome||'')+'" oninput="upd(\'f\',\'nome\',this.value)"></td><td class="ec"><input autocomplete="off" value="'+(ED.fD.cnpj||'')+'" oninput="upd(\'f\',\'cnpj\',this.value)"></td><td class="ec"><input autocomplete="off" value="'+(ED.fD.contato||'')+'" oninput="upd(\'f\',\'contato\',this.value)"></td><td class="ec"><select oninput="upd(\'f\',\'categoria\',this.value)">'+mkCatOpts(ED.fD.categoria)+'</select></td><td class="ec"><input autocomplete="off" value="'+(ED.fD.maps_link||'')+'" oninput="upd(\'f\',\'maps_link\',this.value)" placeholder="https://maps.google.com/..."></td><td class="ec"><b style="color:#E24B4A">'+fmt(gf[f.id]||0)+'</b></td><td class="ec"><button class="btn btns" onclick="salvarF()">Salvar</button> <button class="btn" onclick="canc(\'f\')">Cancelar</button></td></tr>';
+      } else {
+        rows += '<tr><td><b style="color:'+(i===0?'#E24B4A':'#888')+'">'+(i+1)+'</b></td><td><b>'+f.nome+'</b></td><td>'+(f.cnpj||'')+'</td><td>'+(f.contato||'')+'</td><td>'+bdg(cat.label,cat.color,cat.bg)+'</td><td>'+(f.maps_link?'<a href="'+f.maps_link+'" target="_blank" style="color:#185FA5;font-size:12px">📍 Ver no Maps</a>':'<span style="color:#ccc;font-size:11px">—</span>')+'</td><td><b style="color:#E24B4A">'+fmt(gf[f.id]||0)+'</b></td><td><button class="btn" onclick="editF(\''+f.id+'\')">Editar</button></td></tr>';
+      }
+    });
+    content = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:14px;font-weight:500">Fornecedores</div><button class="btn btnp" onclick="novoF()">+ Novo fornecedor</button></div><div class="ox"><table><thead><tr><th>#</th><th>Nome</th><th>CNPJ</th><th>Contato</th><th>Categoria</th><th>📍 Google Maps</th><th>Total mês</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+  }
+
+  // ── ALERTAS ──
+  else if(ST.tab===4) {
+    const aSort = [...ST.al].sort((a,b)=>new Date(a.vencimento)-new Date(b.vencimento));
+    let rows = '';
+    if(ED.aId==='new') {
+      const vO = ST.v.map(v=>'<option value="'+v.id+'"'+(v.id==ED.aD.veiculo_id?' selected':'')+'>'+v.placa+' — '+v.modelo+'</option>').join('');
+      rows += '<tr style="background:#eef4fb"><td class="ec"><select oninput="upd(\'a\',\'veiculo_id\',this.value)">'+vO+'</select></td><td class="ec"><select oninput="upd(\'a\',\'tipo\',this.value)">'+ATIPS.map(t=>'<option'+(t===ED.aD.tipo?' selected':'')+'>'+t+'</option>').join('')+'</select></td><td class="ec"><input type="date" value="'+(ED.aD.vencimento||'')+'" oninput="upd(\'a\',\'vencimento\',this.value)"></td><td class="ec">—</td><td class="ec"><button class="btn btns" onclick="salvarA()">Salvar</button> <button class="btn" onclick="canc(\'a\')">Cancelar</button></td></tr>';
+    }
+    aSort.forEach(a => {
+      const v = ST.v.find(x=>x.id===a.veiculo_id)||{};
+      const s = stAl(a.vencimento);
+      rows += '<tr><td>'+(v.placa||'—')+' — '+(v.modelo||'')+'</td><td><b>'+a.tipo+'</b></td><td>'+a.vencimento+'</td><td>'+bdg(s.l==='Vencido'?'Vencido':'Em '+s.l,s.c,s.bg)+'</td><td><button class="btn" style="color:#E24B4A;border-color:#E24B4A" onclick="remA(\''+a.id+'\')">Remover</button></td></tr>';
+    });
+    content = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:14px;font-weight:500">Alertas e vencimentos</div><button class="btn btnp" onclick="novoA()">+ Novo alerta</button></div><table><thead><tr><th>Veículo</th><th>Tipo</th><th>Vencimento</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+
+  // ── ORÇAMENTO ──
+  else if(ST.tab===5) {
+    const gc2=gCat(), tg2=tGasto(), to2=tOrc();
+    let catCards = '';
+    CATS.forEach(cat => {
+      const r=gc2[cat.id]||0, o=Number(ST.orc[cat.id]||0);
+      catCards += '<div style="border:1px solid '+cat.color+'40;border-radius:10px;padding:1rem"><div style="display:flex;align-items:center;gap:7px;margin-bottom:8px"><span style="width:10px;height:10px;border-radius:2px;background:'+cat.color+'"></span><b style="font-size:13px">'+cat.label+'</b></div><div style="font-size:11px;color:#888;margin-bottom:3px">Valor orçado (R$)</div><input type="number" value="'+o+'" onchange="salvarOrc(\''+cat.id+'\',this.value)" style="margin-bottom:8px">'+pbar(r,o,cat.color)+'<div style="font-size:11px;color:#888;margin-top:6px">Saldo: <b style="color:'+(o-r>=0?'#1D9E75':'#E24B4A')+'">'+fmt(o-r)+'</b></div></div>';
+    });
+    let sumCards = '';
+    [{l:'Orçamento total',v:fmt(to2),c:'#185FA5'},{l:'Total gasto',v:fmt(tg2),c:'#E24B4A'},{l:'Saldo',v:fmt(to2-tg2),c:to2-tg2>=0?'#1D9E75':'#E24B4A'},{l:'% consumido',v:pct(tg2,to2)+'%',c:pct(tg2,to2)>80?'#E24B4A':'#BA7517'}]
+      .forEach(x => { sumCards += '<div class="metric"><div style="font-size:11px;color:#666;margin-bottom:3px">'+x.l+'</div><div style="font-size:20px;font-weight:500;color:'+x.c+'">'+x.v+'</div></div>'; });
+
+    content = '<div class="card" style="background:#E6F1FB;border-color:#185FA540;padding:.8rem 1.25rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="font-size:13px;font-weight:500;color:#185FA5">📅 Orçamento de: <b style="text-transform:capitalize">'+nmMes(ST.mes)+'</b></span><span style="font-size:11px;color:#888;margin-left:auto">'+osMes.length+' OS · '+osFch+' fechadas · '+osAb+' abertas</span></div>'
+      +'<div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Orçamento por categoria</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">'+catCards+'</div></div>'
+      +'<div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:12px">Resumo</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">'+sumCards+'</div></div>';
+  }
+
+  document.getElementById('app').innerHTML = header + '<div style="padding:1.25rem;max-width:1100px;margin:0 auto">'+filtroBar+content+'</div>';
+  window.scrollTo(0,0);
+
+}
+
+// HANDLERS
+window.setTab = i => { ST.tab=i; ED={vId:null,vD:{},fId:null,fD:{},osId:null,osD:{},aId:null,aD:{}}; render(); };
+window.setMes = async m => { ST.mes=m; ST.orc={}; await load(); };
+window.setCat = c => { ST.cat=c; render(); };
+window.upd = (t,k,v) => { if(t==='v')ED.vD[k]=v; else if(t==='f')ED.fD[k]=v; else if(t==='os')ED.osD[k]=v; else if(t==='a')ED.aD[k]=v; };
+window.canc = t => { if(t==='v')ED.vId=null; else if(t==='f')ED.fId=null; else if(t==='os')ED.osId=null; else if(t==='a')ED.aId=null; render(); };
+window.novoV = () => { ED.vId='new'; ED.vD={placa:'',modelo:'',ano:2024,km:0,responsavel:'',tipo:'Caminhão'}; render(); };
+window.editV = id => { const v=ST.v.find(x=>x.id===id); ED.vId=id; ED.vD={...v}; render(); };
+window.novoF = () => { ED.fId='new'; ED.fD={nome:'',cnpj:'',contato:'',categoria:'manutencao',maps_link:''}; render(); };
+window.editF = id => { const f=ST.f.find(x=>x.id===id); ED.fId=id; ED.fD={...f}; render(); };
+window.novaOS = () => { ED.osId='new'; ED.osD={numero:'',veiculo_id:'',fornecedor_id:'',categoria:'manutencao',descricao:'',valor:'',nf:'',conta_orcamentaria:'',data_abertura:'',data_fechamento:'',status:'Aberta',mes_referencia:''}; render(); };
+window.editOS = id => { const o=ST.os.find(x=>x.id===id); ED.osId=id; ED.osD={...o}; render(); };
+window.novoA = () => { ED.aId='new'; ED.aD={veiculo_id:ST.v[0]?.id||'',tipo:'IPVA',vencimento:''}; render(); };
+window.salvarV=salvV; window.salvarF=salvF; window.salvarOS=salvOS; window.salvarA=salvA;
+window.remA=remA; window.salvarOrc=salvOrc;
+
+load();
+</script>
+</body>
+</html>
