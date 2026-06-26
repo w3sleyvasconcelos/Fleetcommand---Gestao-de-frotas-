@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FleetCommand — Gestão de Frotas</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23185FA5'/><text y='72' x='50' text-anchor='middle' font-size='60'>🚛</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23185FA5'/><text y='72' x='50' text-anchor='middle' font-size='60'>🚛</text></svg>">
+  <meta name="theme-color" content="#185FA5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="FleetCommand">
+  <meta name="mobile-web-app-capable" content="yes">
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f3; color: #1a1a1a; min-height: 100vh; }
+    input, select, button { font-family: inherit; }
+    input, select { padding: 6px 9px; border-radius: 7px; border: 1px solid #d0d0cc; font-size: 12px; background: #fff; color: #1a1a1a; width: 100%; autocomplete: off; }
+    input:focus, select:focus { outline: 2px solid #185FA5; outline-offset: 1px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; padding: 8px; background: #f5f5f3; border-bottom: 1px solid #e0e0da; color: #666; font-size: 11px; font-weight: 500; white-space: nowrap; }
+    td { padding: 8px; border-bottom: 1px solid #ebebea; vertical-align: middle; }
+    td.edit-cell { padding: 4px; background: #eef4fb; }
+    .btn { padding: 6px 13px; border-radius: 7px; cursor: pointer; font-size: 12px; border: 1px solid #d0d0cc; background: transparent; color: #1a1a1a; }
+    .btn:hover { background: #f0f0ee; }
+    .btn-primary { background: #185FA5; color: #fff; border-color: #185FA5; }
+    .btn-save { background: #1D9E75; color: #fff; border-color: #1D9E75; }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 500; }
+    .card { background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 14px; }
+    .metric { background: #f5f5f3; border-radius: 8px; padding: 0.8rem 1rem; }
+    .metric-label { font-size: 11px; color: #666; margin-bottom: 3px; }
+    .metric-value { font-size: 20px; font-weight: 500; }
+    .grid-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 10px; margin-bottom: 14px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .sec-title { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1D9E75; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 999; display: none; }
+    .toast.error { background: #E24B4A; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .overflow-x { overflow-x: auto; }
+    @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<div id="app" autocomplete="off">
+  <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px;">
+    <div class="spinner" style="width:28px;height:28px;border-color:#185FA5;border-top-color:transparent;"></div>
+    <span style="color:#666;font-size:13px;">Conectando ao banco de dados...</span>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const SUPABASE_URL = 'https://jrmocioibhnxfrjkoxnh.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpybW9jaW9pYmhueGZyamtveG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjY1ODMsImV4cCI6MjA5MTk0MjU4M30.3tlIaNX2bmvSnzZYiWmLYrpfZ6WpBNauK_xFjAlN56k';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const CATEGORIAS = [
+  { id: 'combustivel',    label: 'Combustível',        color: '#E24B4A', bg: '#FCEBEB' },
+  { id: 'manutencao',     label: 'Manutenção Frota',   color: '#185FA5', bg: '#E6F1FB' },
+  { id: 'lavagem',        label: 'Lavagem',             color: '#1D9E75', bg: '#E1F5EE' },
+  { id: 'pneu_aquisicao', label: 'Pneus Aquisição',    color: '#BA7517', bg: '#FAEEDA' },
+  { id: 'pneu_servico',   label: 'Pneus Serviços',     color: '#533CB7', bg: '#EEEDFE' },
+  { id: 'padronizacao',   label: 'Padronização Frota', color: '#5F5E5A', bg: '#F1EFE8' },
+];
+const TIPOS = ['Caminhão','Van','Carro','Moto','Utilitário'];
+const ALERT_TIPOS = ['IPVA','Seguro','Revisão','CNH','Licenciamento','Cronotacógrafo','ANTT','Despoluir','Laudo Plataforma','Alinhamento','Outros'];
+let state = { veiculos:[], fornecedores:[], os:[], alertas:[], orcamentos:{}, tab:0, filtro:{de:'',ate:''} };
+let editState = { vId:null, vData:{}, fId:null, fData:{}, osId:null, osData:{}, aId:null, aData:{} };
+function fmt(v) { return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pct(a,b) { return b>0?Math.round((a/b)*100):0; }
+function diasAte(data) { const d=new Date(data+'T00:00:00'),h=new Date(); h.setHours(0,0,0,0); return Math.ceil((d-h)/86400000); }
+function stAlerta(data) { const d=diasAte(data); if(d<0) return {label:'Vencido',color:'#E24B4A',bg:'#FCEBEB'}; if(d<=30) return {label:d+'d',color:'#BA7517',bg:'#FAEEDA'}; return {label:d+'d',color:'#1D9E75',bg:'#E1F5EE'}; }
+function badge(txt,color,bg) { return `<span class="badge" style="color:${color};background:${bg}">${txt}</span>`; }
+function showToast(msg,err=false) { const t=document.getElementById('toast'); t.textContent=msg; t.className='toast'+(err?' error':''); t.style.display='block'; setTimeout(()=>t.style.display='none',3000); }
+async function loadAll() {
+  const [v,f,o,a,orc] = await Promise.all([
+    sb.from('veiculos').select('*').order('criado_em'),
+    sb.from('fornecedores').select('*').order('criado_em'),
+    sb.from('ordens_servico').select('*').order('criado_em'),
+    sb.from('alertas').select('*').order('vencimento'),
+    sb.from('orcamentos').select('*'),
+  ]);
+  state.veiculos=v.data||[]; state.fornecedores=f.data||[]; state.os=o.data||[]; state.alertas=a.data||[];
+  state.orcamentos={}; (orc.data||[]).forEach(x=>state.orcamentos[x.categoria]=x.valor);
+  render();
+}
+function osFiltradas() {
+  return state.os.filter(o=>{
+    if(state.filtro.de&&o.data_abertura<state.filtro.de) return false;
+    if(state.filtro.ate&&o.data_abertura>state.filtro.ate) return false;
+    return true;
+  });
+}
+function gastosV() { const g={}; state.veiculos.forEach(v=>g[v.id]=0); osFiltradas().forEach(o=>{if(g[o.veiculo_id]!==undefined)g[o.veiculo_id]+=Number(o.valor);}); return g; }
+function gastosF() { const g={}; state.fornecedores.forEach(f=>g[f.id]=0); osFiltradas().forEach(o=>{if(g[o.fornecedor_id]!==undefined)g[o.fornecedor_id]+=Number(o.valor);}); return g; }
+function gastosCat() { const g={}; CATEGORIAS.forEach(c=>g[c.id]=0); osFiltradas().forEach(o=>{if(g[o.categoria]!==undefined)g[o.categoria]+=Number(o.valor);}); return g; }
+function totalGasto() { return Object.values(gastosCat()).reduce((a,b)=>a+b,0); }
+function totalOrc() { return Object.values(state.orcamentos).reduce((a,b)=>a+Number(b),0); }
+async function salvarVeiculo() {
+  const d={...editState.vData,km:parseInt(editState.vData.km)||0,ano:parseInt(editState.vData.ano)||2024};
+  if(editState.vId==='new'){delete d.id; const{error}=await sb.from('veiculos').insert(d); if(error) return showToast('Erro ao salvar: '+error.message,true);}
+  else{const{error}=await sb.from('veiculos').update(d).eq('id',editState.vId); if(error) return showToast('Erro ao atualizar: '+error.message,true);}
+  editState.vId=null; showToast('Veículo salvo!'); await loadAll();
+}
+async function salvarForn() {
+  const d={...editState.fData};
+  if(editState.fId==='new'){delete d.id; const{error}=await sb.from('fornecedores').insert(d); if(error) return showToast('Erro: '+error.message,true);}
+  else{const{error}=await sb.from('fornecedores').update(d).eq('id',editState.fId); if(error) return showToast('Erro: '+error.message,true);}
+  editState.fId=null; showToast('Fornecedor salvo!'); await loadAll();
+}
+async function salvarOS() {
+  const d={...editState.osData, valor: parseFloat(editState.osData.valor)||0};
+  d.data_fechamento = d.data_fechamento && d.data_fechamento.trim()!=='' ? d.data_fechamento : null;
+  d.data_abertura = d.data_abertura && d.data_abertura.trim()!=='' ? d.data_abertura : null;
+  if(!d.veiculo_id) return showToast('Selecione um veículo',true);
+  if(!d.fornecedor_id) return showToast('Selecione um fornecedor',true);
+  if(editState.osId==='new'){delete d.id; const{error}=await sb.from('ordens_servico').insert(d); if(error) return showToast('Erro OS: '+error.message,true);}
+  else{const{error}=await sb.from('ordens_servico').update(d).eq('id',editState.osId); if(error) return showToast('Erro OS: '+error.message,true);}
+  editState.osId=null; showToast('OS salva!'); await loadAll();
+}
+async function salvarAlerta() {
+  const d={...editState.aData};
+  delete d.id;
+  if(!d.veiculo_id||!d.vencimento) return showToast('Preencha veículo e vencimento',true);
+  const{error}=await sb.from('alertas').insert(d);
+  if(error) return showToast('Erro alerta: '+error.message,true);
+  editState.aId=null; showToast('Alerta salvo!'); await loadAll();
+}
+async function removerAlerta(id) { await sb.from('alertas').delete().eq('id',id); showToast('Removido'); await loadAll(); }
+async function deletarVeiculo(id) { if(!confirm('Remover?')) return; await sb.from('veiculos').delete().eq('id',id); await loadAll(); }
+async function salvarOrcamento(cat,val) {
+  const valor=parseFloat(val)||0;
+  const{error}=await sb.from('orcamentos').upsert({categoria:cat,valor,atualizado_em:new Date().toISOString()},{onConflict:'categoria'});
+  if(error) return showToast('Erro orçamento: '+error.message,true);
+  state.orcamentos[cat]=valor;
+  render();
+  showToast('Orçamento salvo!');
+}
+function pbar(valor,orcado,color) {
+  const p=pct(valor,orcado), c=p>100?'#E24B4A':p>80?'#BA7517':color;
+  return `<div style="height:7px;border-radius:4px;background:#ebebea;overflow:hidden;margin:3px 0 2px"><div style="height:100%;width:${Math.min(p,100)}%;background:${c};border-radius:4px"></div></div><div style="display:flex;justify-content:space-between;font-size:10px;color:#888"><span>${fmt(valor)}</span><span>${p}% de ${fmt(orcado)}</span></div>`;
+}
+function render() {
+  const tabs=[{label:'Painel Geral',icon:'▦'},{label:'Veículos',icon:'🚛'},{label:'Ordens de Serviço',icon:'📋'},{label:'Fornecedores',icon:'🏭'},{label:'Alertas',icon:'🔔'},{label:'Orçamento',icon:'💰'}];
+  const tabBtns=tabs.map((t,i)=>`<button onclick="setTab(${i})" style="display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:${state.tab===i?500:400};background:${state.tab===i?'#185FA5':'transparent'};color:${state.tab===i?'#fff':'#888'}"><span style="font-size:13px">${t.icon}</span>${t.label}</button>`).join('');
+  const filtro=`<div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0.7rem 1.25rem"><span style="font-size:12px;color:#888">Período:</span><input type="date" value="${state.filtro.de}" onchange="setFiltro('de',this.value)" style="width:140px"><span style="font-size:11px;color:#888">até</span><input type="date" value="${state.filtro.ate}" onchange="setFiltro('ate',this.value)" style="width:140px">${(state.filtro.de||state.filtro.ate)?`<button class="btn" onclick="setFiltro('reset','')">Limpar</button>`:''}<span style="margin-left:auto;font-size:11px;color:#888">${osFiltradas().length} OS no período</span></div>`;
+  let content='';
+  if(state.tab===0) content=renderDashboard();
+  else if(state.tab===1) content=renderVeiculos();
+  else if(state.tab===2) content=renderOS();
+  else if(state.tab===3) content=renderFornecedores();
+  else if(state.tab===4) content=renderAlertas();
+  else if(state.tab===5) content=renderOrcamento();
+  document.getElementById('app').innerHTML=`
+    <div style="background:#fff;border-bottom:1px solid #e8e8e4;padding:0 1.5rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px;padding:0.85rem 0">
+        <div style="width:36px;height:36px;border-radius:10px;background:#185FA5;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px">🚛</div>
+        <div><div style="font-weight:600;font-size:15px;letter-spacing:-0.3px;line-height:1.2">FleetCommand</div><div style="font-size:10px;color:#888;letter-spacing:0.5px;text-transform:uppercase">Gestão de Frotas</div></div>
+      </div>
+      <div style="display:flex;gap:2px;flex-wrap:wrap;padding:0.5rem 0">${tabBtns}</div>
+    </div>
+    <div style="padding:1.25rem;max-width:1100px;margin:0 auto">${filtro}${content}</div>`;
+}
+function renderDashboard() {
+  const gc=gastosCat(),gv=gastosV(),gf=gastosF(),tg=totalGasto(),to=totalOrc();
+  const osAbertas=state.os.filter(o=>o.status==='Aberta').length;
+  const veicSorted=[...state.veiculos].sort((a,b)=>(gv[b.id]||0)-(gv[a.id]||0));
+  const fornSorted=[...state.fornecedores].sort((a,b)=>(gf[b.id]||0)-(gf[a.id]||0));
+  const osSorted=[...osFiltradas()].sort((a,b)=>b.valor-a.valor);
+  return `<div class="grid-metrics">${[{l:'Total gasto',v:fmt(tg),c:'#E24B4A'},{l:'Orçamento total',v:fmt(to),c:'#185FA5'},{l:'Saldo disponível',v:fmt(to-tg),c:to-tg>=0?'#1D9E75':'#E24B4A'},{l:'OS abertas',v:osAbertas,c:'#BA7517'},{l:'Frota',v:state.veiculos.length+' veículos',c:'#1a1a1a'}].map(x=>`<div class="metric"><div class="metric-label">${x.l}</div><div class="metric-value" style="color:${x.c}">${x.v}</div></div>`).join('')}</div>
+  <div class="grid-2">
+    <div class="card"><div class="sec-title">Gastos vs orçamento</div>${CATEGORIAS.map(cat=>`<div style="margin-bottom:11px"><div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:1px"><span style="width:9px;height:9px;border-radius:2px;background:${cat.color};display:inline-block;flex-shrink:0"></span>${cat.label}</div>${pbar(gc[cat.id],Number(state.orcamentos[cat.id]||0),cat.color)}</div>`).join('')}</div>
+    <div class="card"><div class="sec-title">Impacto por veículo</div>${veicSorted.map((v,i)=>`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:1px"><span><b style="color:${i===0?'#E24B4A':'#888'}">#${i+1}</b> ${v.placa} — ${v.modelo}</span><b>${fmt(gv[v.id]||0)}</b></div><div style="height:7px;border-radius:4px;background:#ebebea;overflow:hidden"><div style="height:100%;width:${pct(gv[v.id]||0,tg)}%;background:${i===0?'#E24B4A':'#185FA5'};border-radius:4px"></div></div></div>`).join('')}</div>
+  </div>
+  <div class="grid-2">
+    <div class="card"><div class="sec-title">Fornecedores por impacto</div><table><thead><tr><th>#</th><th>Fornecedor</th><th>Total</th><th>%</th></tr></thead><tbody>${fornSorted.map((f,i)=>`<tr><td><b style="color:${i===0?'#E24B4A':'#888'}">${i+1}</b></td><td>${f.nome}</td><td><b>${fmt(gf[f.id]||0)}</b></td><td>${pct(gf[f.id]||0,tg)}%</td></tr>`).join('')}</tbody></table></div>
+    <div class="card"><div class="sec-title">OS mais caras</div><table><thead><tr><th>OS</th><th>Descrição</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>${osSorted.slice(0,6).map(o=>{const cat=CATEGORIAS.find(c=>c.id===o.categoria);return `<tr><td>${badge(o.numero,'#533CB7','#EEEDFE')}</td><td>${o.descricao||''}</td><td>${badge(cat.label,cat.color,cat.bg)}</td><td><b>${fmt(o.valor)}</b></td></tr>`;}).join('')}</tbody></table></div>
+  </div>
+  <div class="card"><div class="sec-title">Alertas de vencimento</div><div style="display:flex;gap:10px;flex-wrap:wrap">${state.alertas.map(a=>{const v=state.veiculos.find(x=>x.id===a.veiculo_id);const st=stAlerta(a.vencimento);return `<div style="background:${st.bg};border-radius:10px;padding:10px 14px;min-width:140px"><div style="font-size:11px;color:${st.color};font-weight:500">${a.tipo}</div><div style="font-size:13px;font-weight:500">${v?.placa||'—'}</div><div style="font-size:11px;color:#888">${a.vencimento}</div>${badge(st.label==='Vencido'?'Vencido':'Em '+st.label,st.color,'transparent')}</div>`;}).join('')}</div></div>`;
+}
+function renderVeiculos() {
+  const gv=gastosV();
+  const sorted=[...state.veiculos].sort((a,b)=>(gv[b.id]||0)-(gv[a.id]||0));
+  const editRow=(data,gasto)=>`<tr style="background:#eef4fb"><td class="edit-cell"><input autocomplete="off" value="${data.placa||''}" oninput="updEdit('v','placa',this.value)" placeholder="ABC-1234" style="width:95px"></td><td class="edit-cell"><input autocomplete="off" value="${data.modelo||''}" oninput="updEdit('v','modelo',this.value)" placeholder="Modelo"></td><td class="edit-cell"><input autocomplete="off" type="number" value="${data.ano||2024}" oninput="updEdit('v','ano',this.value)" style="width:68px"></td><td class="edit-cell"><input autocomplete="off" type="number" value="${data.km||0}" oninput="updEdit('v','km',this.value)" style="width:85px"></td><td class="edit-cell"><input autocomplete="off" value="${data.responsavel||''}" oninput="updEdit('v','responsavel',this.value)" placeholder="Responsável"></td><td class="edit-cell"><select oninput="updEdit('v','tipo',this.value)">${TIPOS.map(t=>`<option${t===data.tipo?' selected':''}>${t}</option>`).join('')}</select></td><td class="edit-cell">${gasto!=null?`<b style="color:#E24B4A">${fmt(gasto)}</b>`:'—'}</td><td class="edit-cell"><button class="btn btn-save" onclick="salvarVeiculo()">Salvar</button> <button class="btn" onclick="cancelEdit('v')">Cancelar</button></td></tr>`;
+  return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="sec-title">Veículos cadastrados</div><button class="btn btn-primary" onclick="novoVeiculo()">+ Novo veículo</button></div><div class="overflow-x"><table><thead><tr><th>Placa</th><th>Modelo</th><th>Ano</th><th>KM atual</th><th>Responsável</th><th>Tipo</th><th>Total gasto</th><th></th></tr></thead><tbody>${editState.vId==='new'?editRow(editState.vData,null):''}${sorted.map((v,i)=>editState.vId===v.id?editRow(editState.vData,gv[v.id]||0):`<tr><td><b style="color:${i===0?'#E24B4A':'#1a1a1a'}">${v.placa}</b></td><td>${v.modelo}</td><td>${v.ano}</td><td>${Number(v.km).toLocaleString('pt-BR')} km</td><td>${v.responsavel||'—'}</td><td>${badge(v.tipo,'#185FA5','#E6F1FB')}</td><td><b style="color:#E24B4A">${fmt(gv[v.id]||0)}</b></td><td><button class="btn" onclick="editVeiculo('${v.id}')">Editar</button></td></tr>`).join('')}</tbody></table></div></div>`;
+}
+function renderOS() {
+  const sorted=[...osFiltradas()].sort((a,b)=>b.valor-a.valor);
+  const veicOpts=`<option value="">-- Veículo --</option>`+state.veiculos.map(v=>`<option value="${v.id}"${v.id===editState.osData.veiculo_id?' selected':''}>${v.placa}</option>`).join('');
+  const fornOpts=`<option value="">-- Fornecedor --</option>`+state.fornecedores.map(f=>`<option value="${f.id}"${f.id===editState.osData.fornecedor_id?' selected':''}>${f.nome}</option>`).join('');
+  const catOpts=CATEGORIAS.map(c=>`<option value="${c.id}"${c.id===editState.osData.categoria?' selected':''}>${c.label}</option>`).join('');
+  const d=editState.osData;
+  const editRow=`<tr style="background:#eef4fb"><td class="edit-cell"><input autocomplete="off" value="${d.numero||''}" oninput="updEdit('os','numero',this.value)" style="width:105px"></td><td class="edit-cell"><select onchange="updEdit('os','veiculo_id',this.value)" style="width:100px">${veicOpts}</select></td><td class="edit-cell"><select onchange="updEdit('os','categoria',this.value)" style="width:115px">${catOpts}</select></td><td class="edit-cell"><input autocomplete="off" value="${d.descricao||''}" oninput="updEdit('os','descricao',this.value)" placeholder="Descrição" style="width:130px"></td><td class="edit-cell"><select onchange="updEdit('os','fornecedor_id',this.value)" style="width:115px">${fornOpts}</select></td><td class="edit-cell"><input autocomplete="off" value="${d.nf||''}" oninput="updEdit('os','nf',this.value)" placeholder="NF" style="width:85px"></td><td class="edit-cell"><input autocomplete="off" value="${d.conta_orcamentaria||''}" oninput="updEdit('os','conta_orcamentaria',this.value)" placeholder="Conta" style="width:85px"></td><td class="edit-cell"><input type="date" value="${d.data_abertura||''}" onchange="updEdit('os','data_abertura',this.value)" style="width:108px"></td><td class="edit-cell"><input type="date" value="${d.data_fechamento||''}" onchange="updEdit('os','data_fechamento',this.value)" style="width:108px"></td><td class="edit-cell"><select onchange="updEdit('os','status',this.value)" style="width:82px"><option${d.status==='Aberta'?' selected':''}>Aberta</option><option${d.status==='Fechada'?' selected':''}>Fechada</option></select></td><td class="edit-cell"><input autocomplete="off" type="number" value="${d.valor||''}" oninput="updEdit('os','valor',this.value)" placeholder="Valor" style="width:85px"></td><td class="edit-cell"><button class="btn btn-save" onclick="salvarOS()">Salvar</button> <button class="btn" onclick="cancelEdit('os')">✕</button></td></tr>`;
+  return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="sec-title">Ordens de Serviço — ${osFiltradas().length} registros</div><button class="btn btn-primary" onclick="novaOS()">+ Nova OS</button></div><div class="overflow-x"><table><thead><tr><th>Nº OS</th><th>Veículo</th><th>Categoria</th><th>Descrição</th><th>Fornecedor</th><th>NF</th><th>Conta Orc.</th><th>Abertura</th><th>Fechamento</th><th>Status</th><th>Valor</th><th></th></tr></thead><tbody>${editState.osId==='new'?editRow:''}${sorted.map(o=>{const v=state.veiculos.find(x=>x.id===o.veiculo_id);const f=state.fornecedores.find(x=>x.id===o.fornecedor_id);const cat=CATEGORIAS.find(c=>c.id===o.categoria);return editState.osId===o.id?editRow:`<tr><td>${badge(o.numero,'#533CB7','#EEEDFE')}</td><td>${v?.placa||'—'}</td><td>${badge(cat.label,cat.color,cat.bg)}</td><td>${o.descricao||''}</td><td>${f?.nome||'—'}</td><td>${o.nf||''}</td><td>${o.conta_orcamentaria||''}</td><td>${o.data_abertura||''}</td><td>${o.data_fechamento||'—'}</td><td>${badge(o.status,o.status==='Aberta'?'#BA7517':'#1D9E75',o.status==='Aberta'?'#FAEEDA':'#E1F5EE')}</td><td><b>${fmt(o.valor)}</b></td><td><button class="btn" onclick="editOS('${o.id}')">Editar</button></td></tr>`;}).join('')}</tbody></table></div></div>`;
+}
+function renderFornecedores() {
+  const gf=gastosF(),tg=totalGasto();
+  const sorted=[...state.fornecedores].sort((a,b)=>(gf[b.id]||0)-(gf[a.id]||0));
+  const catOpts=CATEGORIAS.map(c=>`<option value="${c.id}"${c.id===editState.fData.categoria?' selected':''}>${c.label}</option>`).join('');
+  const d=editState.fData;
+  const editRow=`<tr style="background:#eef4fb"><td class="edit-cell">novo</td><td class="edit-cell"><input value="${d.nome||''}" oninput="updEdit('f','nome',this.value)" placeholder="Nome"></td><td class="edit-cell"><input value="${d.cnpj||''}" oninput="updEdit('f','cnpj',this.value)" placeholder="CNPJ"></td><td class="edit-cell"><input value="${d.contato||''}" oninput="updEdit('f','contato',this.value)" placeholder="Contato"></td><td class="edit-cell"><select oninput="updEdit('f','categoria',this.value)">${catOpts}</select></td><td class="edit-cell">—</td><td class="edit-cell">—</td><td class="edit-cell"><button class="btn btn-save" onclick="salvarForn()">Salvar</button> <button class="btn" onclick="cancelEdit('f')">Cancelar</button></td></tr>`;
+  return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="sec-title">Fornecedores — maior → menor impacto</div><button class="btn btn-primary" onclick="novoForn()">+ Novo fornecedor</button></div><div class="overflow-x"><table><thead><tr><th>#</th><th>Nome</th><th>CNPJ</th><th>Contato</th><th>Categoria</th><th>Total</th><th>%</th><th></th></tr></thead><tbody>${editState.fId==='new'?editRow:''}${sorted.map((f,i)=>{const cat=CATEGORIAS.find(c=>c.id===f.categoria);return editState.fId===f.id?editRow.replace('novo',i+1):`<tr><td><b style="color:${i===0?'#E24B4A':'#888'}">${i+1}</b></td><td><b>${f.nome}</b></td><td>${f.cnpj||''}</td><td>${f.contato||''}</td><td>${badge(cat.label,cat.color,cat.bg)}</td><td><b style="color:#E24B4A">${fmt(gf[f.id]||0)}</b></td><td>${pct(gf[f.id]||0,tg)}%</td><td><button class="btn" onclick="editForn('${f.id}')">Editar</button></td></tr>`;}).join('')}</tbody></table></div></div>`;
+}
+function renderAlertas() {
+  const veicOpts=state.veiculos.map(v=>`<option value="${v.id}"${v.id==editState.aData.veiculo_id?' selected':''}>${v.placa} — ${v.modelo}</option>`).join('');
+  const d=editState.aData;
+  const editRow=`<tr style="background:#eef4fb"><td class="edit-cell"><select oninput="updEdit('a','veiculo_id',this.value)">${veicOpts}</select></td><td class="edit-cell"><select oninput="updEdit('a','tipo',this.value)">${ALERT_TIPOS.map(t=>`<option${t===d.tipo?' selected':''}>${t}</option>`).join('')}</select></td><td class="edit-cell"><input type="date" value="${d.vencimento||''}" oninput="updEdit('a','vencimento',this.value)"></td><td class="edit-cell">—</td><td class="edit-cell"><button class="btn btn-save" onclick="salvarAlerta()">Salvar</button> <button class="btn" onclick="cancelEdit('a')">Cancelar</button></td></tr>`;
+  const sorted=[...state.alertas].sort((a,b)=>new Date(a.vencimento)-new Date(b.vencimento));
+  return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="sec-title">Alertas e vencimentos</div><button class="btn btn-primary" onclick="novoAlerta()">+ Novo alerta</button></div><table><thead><tr><th>Veículo</th><th>Tipo</th><th>Vencimento</th><th>Status</th><th></th></tr></thead><tbody>${editState.aId==='new'?editRow:''}${sorted.map(a=>{const v=state.veiculos.find(x=>x.id===a.veiculo_id);const st=stAlerta(a.vencimento);return `<tr><td>${v?.placa||'—'} — ${v?.modelo||''}</td><td><b>${a.tipo}</b></td><td>${a.vencimento}</td><td>${badge(st.label==='Vencido'?'Vencido':'Em '+st.label,st.color,st.bg)}</td><td><button class="btn" style="color:#E24B4A;border-color:#E24B4A" onclick="removerAlerta('${a.id}')">Remover</button></td></tr>`;}).join('')}</tbody></table></div>`;
+}
+function renderOrcamento() {
+  const gc=gastosCat(),tg=totalGasto(),to=totalOrc();
+  return `<div class="card"><div class="sec-title">Definir orçamento por categoria</div><p style="font-size:12px;color:#888;margin-bottom:16px">Insira o valor orçado e acompanhe o consumo em tempo real.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">${CATEGORIAS.map(cat=>`<div style="border:1px solid ${cat.color}40;border-radius:10px;padding:1rem"><div style="display:flex;align-items:center;gap:7px;margin-bottom:8px"><span style="width:10px;height:10px;border-radius:2px;background:${cat.color};flex-shrink:0"></span><b style="font-size:13px">${cat.label}</b></div><div style="font-size:11px;color:#888;margin-bottom:3px">Valor orçado (R$)</div><input type="number" value="${state.orcamentos[cat.id]||0}" onchange="salvarOrcamento('${cat.id}',this.value)" style="margin-bottom:8px">${pbar(gc[cat.id],Number(state.orcamentos[cat.id]||0),cat.color)}<div style="font-size:11px;color:#888;margin-top:5px">Saldo: <b style="color:${(state.orcamentos[cat.id]||0)-gc[cat.id]>=0?'#1D9E75':'#E24B4A'}">${fmt((state.orcamentos[cat.id]||0)-gc[cat.id])}</b></div></div>`).join('')}</div></div><div class="card"><div class="sec-title">Resumo orçamentário</div><div class="grid-metrics">${[{l:'Orçamento total',v:fmt(to),c:'#185FA5'},{l:'Total gasto',v:fmt(tg),c:'#E24B4A'},{l:'Saldo restante',v:fmt(to-tg),c:to-tg>=0?'#1D9E75':'#E24B4A'},{l:'% consumido',v:pct(tg,to)+'%',c:pct(tg,to)>80?'#E24B4A':'#BA7517'}].map(x=>`<div class="metric"><div class="metric-label">${x.l}</div><div class="metric-value" style="color:${x.c}">${x.v}</div></div>`).join('')}</div></div>`;
+}
+window.setTab=(i)=>{state.tab=i;editState={vId:null,vData:{},fId:null,fData:{},osId:null,osData:{},aId:null,aData:{}};render();};
+window.setFiltro=(k,v)=>{if(k==='reset'){state.filtro={de:'',ate:''};}else state.filtro[k]=v;render();};
+window.updEdit=(type,key,val)=>{if(type==='v')editState.vData[key]=val;else if(type==='f')editState.fData[key]=val;else if(type==='os')editState.osData[key]=val;else if(type==='a')editState.aData[key]=val;};
+window.cancelEdit=(type)=>{if(type==='v')editState.vId=null;else if(type==='f')editState.fId=null;else if(type==='os')editState.osId=null;else if(type==='a')editState.aId=null;render();};
+window.novoVeiculo=()=>{editState.vId='new';editState.vData={placa:'',modelo:'',ano:2024,km:0,responsavel:'',tipo:'Caminhão'};render();};
+window.editVeiculo=(id)=>{const v=state.veiculos.find(x=>x.id===id);editState.vId=id;editState.vData={...v};render();};
+window.novoForn=()=>{editState.fId='new';editState.fData={nome:'',cnpj:'',contato:'',categoria:'manutencao'};render();};
+window.editForn=(id)=>{const f=state.fornecedores.find(x=>x.id===id);editState.fId=id;editState.fData={...f};render();};
+window.novaOS=()=>{editState.osId='new';editState.osData={numero:'',veiculo_id:'',fornecedor_id:'',categoria:'manutencao',descricao:'',valor:'',nf:'',conta_orcamentaria:'',data_abertura:'',data_fechamento:'',status:'Aberta',itens:''};render();};
+window.editOS=(id)=>{const o=state.os.find(x=>x.id===id);editState.osId=id;editState.osData={...o};render();};
+window.novoAlerta=()=>{editState.aId='new';editState.aData={veiculo_id:state.veiculos[0]?.id||'',tipo:'IPVA',vencimento:''};render();};
+window.salvarVeiculo=salvarVeiculo;
+window.salvarForn=salvarForn;
+window.salvarOS=salvarOS;
+window.salvarAlerta=salvarAlerta;
+window.removerAlerta=removerAlerta;
+window.deletarVeiculo=deletarVeiculo;
+window.salvarOrcamento=salvarOrcamento;
+loadAll();
+</script>
+</body>
+</html>
