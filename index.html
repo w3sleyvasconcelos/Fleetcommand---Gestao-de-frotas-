@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FleetCommand — Gestão de Frotas</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23185FA5'/><text y='72' x='50' text-anchor='middle' font-size='60'>🚛</text></svg>">
+  <meta name="theme-color" content="#185FA5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="FleetCommand">
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f3; color: #1a1a1a; min-height: 100vh; }
+    input, select, button { font-family: inherit; }
+    input, select {
+      padding: 5px 8px; border-radius: 6px;
+      border: 1px solid #d0d0cc; font-size: 12px;
+      background: #fff; color: #1a1a1a; width: 100%;
+    }
+    input:focus, select:focus { outline: 2px solid #185FA5; outline-offset: 1px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th {
+      text-align: left; padding: 7px 8px;
+      background: #f5f5f3; border-bottom: 1px solid #e0e0da;
+      color: #666; font-size: 11px; font-weight: 500; white-space: nowrap;
+    }
+    th.th-orc { background: #E6F1FB; color: #185FA5; border-bottom: 2px solid #185FA5; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ebebea; vertical-align: middle; }
+    td.ec { padding: 4px; background: #eef4fb; }
+    td.td-orc { background: #f0f7ff; }
+    tr:hover td:not(.ec) { background: #fafaf8; }
+    tr:hover td.td-orc { background: #ddeeff; }
+    .btn { padding: 5px 11px; border-radius: 7px; cursor: pointer; font-size: 12px; border: 1px solid #d0d0cc; background: transparent; color: #1a1a1a; white-space: nowrap; }
+    .btn:hover { background: #f0f0ee; }
+    .btn-p { background: #185FA5; color: #fff; border-color: #185FA5; }
+    .btn-p:hover { background: #144e8a; }
+    .btn-g { background: #1D9E75; color: #fff; border-color: #1D9E75; }
+    .btn-r { background: transparent; color: #E24B4A; border-color: #E24B4A; }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 500; }
+    .card { background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 14px; }
+    .metric { background: #f5f5f3; border-radius: 8px; padding: 0.8rem 1rem; }
+    .metric-label { font-size: 11px; color: #666; margin-bottom: 3px; font-weight: 500; }
+    .metric-value { font-size: 20px; font-weight: 500; line-height: 1.1; }
+    .grid-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .sec-title { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
+    .overflow-x { overflow-x: auto; }
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #1D9E75; color: #fff;
+      padding: 10px 18px; border-radius: 8px;
+      font-size: 13px; font-weight: 500; z-index: 999; display: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    }
+    .toast.error { background: #E24B4A; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-screen { display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; gap: 12px; }
+    .header-wrap { background: #fff; border-bottom: 1px solid #e8e8e4; padding: 0 1.5rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; position: sticky; top: 0; z-index: 50; }
+    .logo-wrap { display: flex; align-items: center; gap: 10px; padding: .85rem 0; }
+    .logo-icon { width: 36px; height: 36px; border-radius: 10px; background: #185FA5; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .logo-name { font-weight: 600; font-size: 15px; letter-spacing: -.3px; line-height: 1.2; }
+    .logo-sub { font-size: 10px; color: #888; letter-spacing: .5px; text-transform: uppercase; }
+    .nav-btn { display: flex; align-items: center; gap: 5px; padding: 7px 13px; border-radius: 8px; border: none; cursor: pointer; font-size: 12px; transition: all .15s; }
+    .content-wrap { padding: 1.25rem; max-width: 1200px; margin: 0 auto; }
+    .pbar-track { height: 10px; border-radius: 4px; background: #ebebea; overflow: hidden; position: relative; margin: 3px 0 2px; }
+    .pbar-real { position: absolute; height: 100%; border-radius: 4px; z-index: 2; transition: width .4s; }
+    .pbar-prev { position: absolute; height: 100%; z-index: 1; transition: width .4s left .4s; }
+    .pbar-labels { display: flex; justify-content: space-between; font-size: 10px; color: #888; }
+    .cat-btn { display: flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 7px; cursor: pointer; font-size: 12px; transition: all .15s; }
+    tr.os-aberta td { background: #FFFBF0 !important; }
+    tr.os-aberta:hover td { background: #FFF5DC !important; }
+    tr.os-aberta td.td-orc { background: #FEF5D9 !important; }
+    /* Select de orçamento mês destacado */
+    .sel-orc-mes {
+      border: 1.5px solid #185FA5 !important;
+      color: #185FA5 !important;
+      font-weight: 600 !important;
+      background: #f0f7ff !important;
+      border-radius: 6px;
+      padding: 4px 6px;
+      font-size: 11px;
+      width: 100%;
+      cursor: pointer;
+    }
+    .sel-orc-mes:focus { outline: 2px solid #185FA5; }
+    .sel-orc-mes.sem-mes { color: #aaa !important; border-color: #d0d0cc !important; background: #fff !important; font-weight: 400 !important; }
+    @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <div class="loading-screen">
+    <div class="spinner" style="width:28px;height:28px;color:#185FA5;border-width:3px;"></div>
+    <span style="color:#666;font-size:13px;">Conectando ao banco de dados…</span>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Supabase ────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://jrmocioibhnxfrjkoxnh.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpybW9jaW9pYmhueGZyamtveG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjY1ODMsImV4cCI6MjA5MTk0MjU4M30.3tlIaNX2bmvSnzZYiWmLYrpfZ6WpBNauK_xFjAlN56k';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── Constantes ──────────────────────────────────────────────────────────────
+const CATEGORIAS = [
+  { id:'combustivel',    label:'Combustível',        color:'#E24B4A', bg:'#FCEBEB' },
+  { id:'manutencao',     label:'Manutenção Frota',   color:'#185FA5', bg:'#E6F1FB' },
+  { id:'lavagem',        label:'Lavagem',            color:'#1D9E75', bg:'#E1F5EE' },
+  { id:'pneu_aquisicao', label:'Pneus Aquisição',   color:'#BA7517', bg:'#FAEEDA' },
+  { id:'pneu_servico',   label:'Pneus Serviços',    color:'#533CB7', bg:'#EEEDFE' },
+  { id:'padronizacao',   label:'Padronização Frota', color:'#5F5E5A', bg:'#F1EFE8' },
+];
+const TIPOS = ['Caminhão','Van','Carro','Moto','Utilitário'];
+const ALERT_TIPOS = ['IPVA','Seguro','Revisão','CNH','Licenciamento','Cronotacógrafo','ANTT','Despoluir','Laudo Plataforma','Alinhamento','Outros'];
+const TABS = [
+  {label:'Painel Geral',      icon:'▦'},
+  {label:'Veículos',          icon:'🚛'},
+  {label:'Ordens de Serviço', icon:'📋'},
+  {label:'Fornecedores',      icon:'🏭'},
+  {label:'Alertas',           icon:'🔔'},
+  {label:'Orçamento',         icon:'💰'},
+];
+
+// ── Estado global ───────────────────────────────────────────────────────────
+let S = {
+  veiculos:[], fornecedores:[], os:[], alertas:[],
+  // orcamentos: chave = "categoria|YYYY-MM", valor = número
+  // ex: { "manutencao|2026-09": 34995, "combustivel|2026-08": 15000 }
+  orcamentos:{},
+  tab: 0,
+  mesSelecionado: new Date().toISOString().substring(0,7),
+  filtroCategoria: '',
+};
+let E = { vId:null, vData:{}, fId:null, fData:{}, osId:null, osData:{}, aId:null, aData:{} };
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const fmt = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+const pct = (a,b) => b>0 ? Math.round((a/b)*100) : 0;
+
+const NOMES_MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const NOMES_MESES_CURTO = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const ANOS_ORC = [2025, 2026, 2027, 2028, 2029, 2030];
+
+function nomeMes(m) {
+  if(!m) return '—';
+  const [y,mo]=m.split('-');
+  return NOMES_MESES[parseInt(mo)-1] + ' de ' + y;
+}
+function nomeMesCurto(m) {
+  if(!m) return '—';
+  const [y,mo]=m.split('-');
+  return NOMES_MESES_CURTO[parseInt(mo)-1]+'/'+y.slice(2);
+}
+
+// Gera HTML de dois selects (mês + ano) que chamam a função callback com "YYYY-MM"
+// containerStyle: estilo inline extra para o div wrapper
+function selMesAno(valorAtual, onchangeFn, containerStyle='') {
+  const [yAtual='', moAtual=''] = (valorAtual||'').split('-');
+  const opsMes = NOMES_MESES.map((n,i)=>{
+    const v=String(i+1).padStart(2,'0');
+    return `<option value="${v}"${v===moAtual?' selected':''}>${n}</option>`;
+  }).join('');
+  const opsAno = ANOS_ORC.map(y=>`<option value="${y}"${String(y)===yAtual?' selected':''}>${y}</option>`).join('');
+  return `<div style="display:flex;gap:4px;align-items:center;${containerStyle}">
+    <select style="flex:1;min-width:90px;font-size:11px;padding:4px 5px;border:1.5px solid #185FA5;border-radius:5px;color:#185FA5;font-weight:600;background:#f0f7ff"
+      onchange="${onchangeFn}(this.closest('div').querySelector('.sel-ano').value, this.value)"
+      class="sel-mes">
+      <option value="">Mês</option>${opsMes}
+    </select>
+    <select style="width:62px;font-size:11px;padding:4px 5px;border:1.5px solid #185FA5;border-radius:5px;color:#185FA5;font-weight:600;background:#f0f7ff"
+      onchange="${onchangeFn}(this.value, this.closest('div').querySelector('.sel-mes').value)"
+      class="sel-ano">
+      <option value="">Ano</option>${opsAno}
+    </select>
+  </div>`;
+}
+
+// Versão simplificada para o filtro global (chama setMes diretamente)
+function selMesAnoGlobal() {
+  const [yAtual='', moAtual=''] = S.mesSelecionado.split('-');
+  const opsMes = NOMES_MESES.map((n,i)=>{
+    const v=String(i+1).padStart(2,'0');
+    return `<option value="${v}"${v===moAtual?' selected':''}>${n}</option>`;
+  }).join('');
+  const opsAno = ANOS_ORC.map(y=>`<option value="${y}"${String(y)===yAtual?' selected':''}>${y}</option>`).join('');
+  return `<div style="display:flex;gap:6px;align-items:center">
+    <select id="gl-mes" style="font-size:12px;padding:5px 8px;border:1.5px solid #185FA5;border-radius:6px;color:#185FA5;font-weight:600;background:#f0f7ff;width:130px"
+      onchange="setMesDuplo(this.value, document.getElementById('gl-ano').value)">
+      <option value="">Mês</option>${opsMes}
+    </select>
+    <select id="gl-ano" style="font-size:12px;padding:5px 8px;border:1.5px solid #185FA5;border-radius:6px;color:#185FA5;font-weight:600;background:#f0f7ff;width:72px"
+      onchange="setMesDuplo(document.getElementById('gl-mes').value, this.value)">
+      <option value="">Ano</option>${opsAno}
+    </select>
+  </div>`;
+}
+function diasAte(data) {
+  const d=new Date(data+'T00:00:00'), h=new Date(); h.setHours(0,0,0,0);
+  return Math.ceil((d-h)/86400000);
+}
+function stAlerta(data) {
+  const d=diasAte(data);
+  if(d<0)   return {label:'Vencido', color:'#E24B4A', bg:'#FCEBEB'};
+  if(d<=30) return {label:d+'d',     color:'#BA7517', bg:'#FAEEDA'};
+  return     {label:d+'d',           color:'#1D9E75', bg:'#E1F5EE'};
+}
+function badge(txt, color, bg) {
+  return `<span class="badge" style="color:${color};background:${bg}">${txt}</span>`;
+}
+function pbar(real, prev, orc, color) {
+  const pReal=Math.min(pct(real,orc),100);
+  const pPrev=Math.min(pct(prev,orc),100-pReal);
+  const total=real+prev;
+  const c=pct(total,orc)>100?'#E24B4A':pct(total,orc)>80?'#BA7517':color;
+  const prevLabel=prev>0?`<span style="color:#BA7517"> +${fmt(prev)} prev.</span>`:'';
+  return `
+    <div class="pbar-track">
+      <div class="pbar-real" style="width:${pReal}%;background:${c}"></div>
+      <div class="pbar-prev" style="left:${pReal}%;width:${pPrev}%;background:${c}55"></div>
+    </div>
+    <div class="pbar-labels">
+      <span><b style="color:#E24B4A">${fmt(real)}</b>${prevLabel}</span>
+      <span style="color:${total>orc?'#E24B4A':'#888'}">${pct(total,orc)}% de ${fmt(orc)}</span>
+    </div>`;
+}
+function showToast(msg, err=false) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast'+(err?' error':'');
+  t.style.display='block'; setTimeout(()=>t.style.display='none',3000);
+}
+
+// Retorna array de "YYYY-MM" presentes nas OS (para saber quais têm alocação)
+function mesesComOS() {
+  const set=new Set();
+  S.os.forEach(o=>{ if(o.orcamento_mes) set.add(o.orcamento_mes); });
+  return [...set].sort();
+}
+
+// ── Derivações: OS filtradas por orcamento_mes (nova lógica) ────────────────
+// O painel e orçamento agora usam EXCLUSIVAMENTE o campo orcamento_mes da OS.
+// Status, data_abertura e data_fechamento NÃO influenciam os cálculos de valor.
+
+function osNoMes() {
+  // OS que têm orcamento_mes === mesSelecionado (independente de status/datas)
+  return S.os.filter(o => o.orcamento_mes === S.mesSelecionado);
+}
+function osNoMesFilt() {
+  return S.filtroCategoria
+    ? osNoMes().filter(o => o.categoria === S.filtroCategoria)
+    : osNoMes();
+}
+// Não há mais "previsto" baseado em status — toda OS no mês é real.
+// Mantemos a separação visual por status apenas na tabela de OS.
+
+function gastosCat() {
+  const g={}; CATEGORIAS.forEach(c=>g[c.id]=0);
+  osNoMesFilt().forEach(o => { if(g[o.categoria]!==undefined) g[o.categoria]+=Number(o.valor); });
+  return g;
+}
+function gastosV() {
+  const g={}; S.veiculos.forEach(v=>g[v.id]=0);
+  osNoMesFilt().forEach(o => { if(g[o.veiculo_id]!==undefined) g[o.veiculo_id]+=Number(o.valor); });
+  return g;
+}
+function gastosF() {
+  const g={}; S.fornecedores.forEach(f=>g[f.id]=0);
+  osNoMesFilt().forEach(o => { if(g[o.fornecedor_id]!==undefined) g[o.fornecedor_id]+=Number(o.valor); });
+  return g;
+}
+// Retorna orçamento de uma categoria no mês selecionado
+function orcDaCat(catId) {
+  return Number(S.orcamentos[catId+'|'+S.mesSelecionado] || 0);
+}
+// Retorna objeto {catId: valor} só das categorias do mês (filtradas se necessário)
+function orcFiltrado() {
+  const cats = S.filtroCategoria ? [S.filtroCategoria] : CATEGORIAS.map(c=>c.id);
+  const g={};
+  cats.forEach(id => g[id] = orcDaCat(id));
+  return g;
+}
+function totalGasto() { return Object.values(gastosCat()).reduce((a,b)=>a+b,0); }
+function totalOrc()   { return Object.values(orcFiltrado()).reduce((a,b)=>a+Number(b),0); }
+
+// ── Supabase: Load ──────────────────────────────────────────────────────────
+async function loadAll() {
+  const [v,f,o,a,orc] = await Promise.all([
+    sb.from('veiculos').select('*').order('criado_em'),
+    sb.from('fornecedores').select('*').order('criado_em'),
+    sb.from('ordens_servico').select('*').order('criado_em'),
+    sb.from('alertas').select('*').order('vencimento'),
+    sb.from('orcamentos').select('*'),
+  ]);
+  S.veiculos     = v.data||[];
+  S.fornecedores = f.data||[];
+  S.alertas      = a.data||[];
+  S.os           = o.data||[];
+  S.orcamentos   = {};
+  (orc.data||[]).forEach(x => {
+    const chave = x.mes_ano ? (x.categoria+'|'+x.mes_ano) : (x.categoria+'|'+S.mesSelecionado);
+    S.orcamentos[chave] = Number(x.valor)||0;
+  });
+  render();
+}
+
+// ── Supabase: Save ──────────────────────────────────────────────────────────
+async function salvarVeiculo() {
+  const d={...E.vData, km:parseInt(E.vData.km)||0, ano:parseInt(E.vData.ano)||2024};
+  delete d.criado_em;
+  if(E.vId==='new'){ delete d.id; const{error}=await sb.from('veiculos').insert(d); if(error) return showToast('Erro: '+error.message,true); }
+  else { const{error}=await sb.from('veiculos').update(d).eq('id',E.vId); if(error) return showToast('Erro: '+error.message,true); }
+  E.vId=null; showToast('✅ Veículo salvo!'); await loadAll();
+}
+async function salvarForn() {
+  const d={...E.fData};
+  delete d.criado_em;
+  if(E.fId==='new'){ delete d.id; const{error}=await sb.from('fornecedores').insert(d); if(error) return showToast('Erro: '+error.message,true); }
+  else { const{error}=await sb.from('fornecedores').update(d).eq('id',E.fId); if(error) return showToast('Erro: '+error.message,true); }
+  E.fId=null; showToast('✅ Fornecedor salvo!'); await loadAll();
+}
+async function salvarOS() {
+  const d={...E.osData, valor:parseFloat(E.osData.valor)||0};
+  delete d.criado_em;
+  d.data_fechamento = d.data_fechamento?.trim()||null;
+  d.data_abertura   = d.data_abertura?.trim()||null;
+  d.orcamento_mes   = d.orcamento_mes?.trim()||null;
+  if(!d.veiculo_id)    return showToast('Selecione um veículo',true);
+  if(!d.fornecedor_id) return showToast('Selecione um fornecedor',true);
+  if(E.osId==='new'){
+    delete d.id;
+    const{error}=await sb.from('ordens_servico').insert(d);
+    if(error) return showToast('Erro OS: '+error.message,true);
+  } else {
+    const{error}=await sb.from('ordens_servico').update(d).eq('id',E.osId);
+    if(error) return showToast('Erro OS: '+error.message,true);
+  }
+  E.osId=null; showToast('✅ OS salva!'); await loadAll();
+}
+async function salvarOrcMes(osId, mes) {
+  const val=mes||null;
+  const{error}=await sb.from('ordens_servico').update({orcamento_mes:val}).eq('id',osId);
+  if(error){ showToast('Erro: '+error.message,true); return; }
+  const idx=S.os.findIndex(x=>x.id===osId);
+  if(idx>=0) S.os[idx].orcamento_mes=val;
+  showToast(val ? '📅 Alocada em '+nomeMesCurto(val) : 'Alocação removida');
+  render();
+}
+async function salvarAlerta() {
+  const d={...E.aData}; delete d.id;
+  if(!d.veiculo_id||!d.vencimento) return showToast('Preencha veículo e vencimento',true);
+  const{error}=await sb.from('alertas').insert(d);
+  if(error) return showToast('Erro alerta: '+error.message,true);
+  E.aId=null; showToast('✅ Alerta salvo!'); await loadAll();
+}
+async function removerAlerta(id) {
+  await sb.from('alertas').delete().eq('id',id);
+  showToast('Alerta removido'); await loadAll();
+}
+async function deletarVeiculo(id) {
+  if(!confirm('Remover veículo?')) return;
+  await sb.from('veiculos').delete().eq('id',id);
+  await loadAll();
+}
+async function salvarOrcamento(cat, val) {
+  const valor=parseFloat(val)||0;
+  const mes=S.mesSelecionado;
+  if(!mes) return showToast('Selecione um mês primeiro',true);
+  const{error}=await sb.from('orcamentos').upsert(
+    {categoria:cat, mes_ano:mes, valor, atualizado_em:new Date().toISOString()},
+    {onConflict:'categoria,mes_ano'}
+  );
+  if(error){ showToast('Erro: '+error.message,true); return; }
+  S.orcamentos[cat+'|'+mes]=valor;
+  const gc=gastosCat(), real=gc[cat]||0, catObj=CATEGORIAS.find(c=>c.id===cat), saldo=valor-real;
+  const barEl=document.getElementById('pbar-'+cat);
+  const saldoEl=document.getElementById('saldo-'+cat);
+  if(barEl) barEl.innerHTML=pbar(real,0,valor,catObj?.color||'#185FA5');
+  if(saldoEl) saldoEl.innerHTML=`<span>✅ Alocado: <b style="color:#E24B4A">${fmt(real)}</b></span><span style="color:${saldo>=0?'#1D9E75':'#E24B4A'}">saldo ${fmt(saldo)}</span>`;
+  showToast('✅ Salvo — '+nomeMesCurto(mes));
+}
+
+// ── Render principal ────────────────────────────────────────────────────────
+function render() {
+  const tabBtns=TABS.map((t,i)=>`
+    <button class="nav-btn" onclick="setTab(${i})" style="
+      font-weight:${S.tab===i?500:400};
+      background:${S.tab===i?'#185FA5':'transparent'};
+      color:${S.tab===i?'#fff':'#888'}">
+      <span>${t.icon}</span>${t.label}
+    </button>`).join('');
+
+  const catFilterBtns=CATEGORIAS.map(cat=>{
+    const ativo=S.filtroCategoria===cat.id;
+    return `<button class="cat-btn" onclick="setCat('${cat.id}')" style="
+      border:${ativo?'none':'1px solid #d0d0cc'};
+      background:${ativo?cat.color:'transparent'};
+      color:${ativo?'#fff':'#1a1a1a'};
+      font-weight:${ativo?500:400}">
+      <span style="width:8px;height:8px;border-radius:2px;background:${ativo?'#fff':cat.color};flex-shrink:0;display:inline-block"></span>
+      ${cat.label}
+    </button>`;
+  }).join('');
+
+  const osDoMesAtual = osNoMes();
+
+  const filtroBar=`
+    <div class="card" style="padding:.8rem 1.25rem;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:500;color:#666">📅 Mês:</span>
+        ${selMesAnoGlobal()}
+        <span style="margin-left:auto;font-size:11px;color:#888;background:#f0f7ff;padding:3px 10px;border-radius:20px;border:1px solid #185FA530">
+          ${osDoMesAtual.length} OS alocadas neste mês
+        </span>
+      </div>
+      ${S.tab===0 ? `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #ebebea">
+        <span style="font-size:12px;font-weight:500;color:#666">📊 Categoria:</span>
+        <button class="cat-btn" onclick="setCat('')" style="
+          border:${!S.filtroCategoria?'none':'1px solid #d0d0cc'};
+          background:${!S.filtroCategoria?'#185FA5':'transparent'};
+          color:${!S.filtroCategoria?'#fff':'#1a1a1a'};
+          font-weight:${!S.filtroCategoria?500:400}">Todos</button>
+        ${catFilterBtns}
+      </div>` : ''}
+    </div>`;
+
+  const sqlBanner = '';
+
+  let content='';
+  if(S.tab===0) content=renderDashboard();
+  else if(S.tab===1) content=renderVeiculos();
+  else if(S.tab===2) content=renderOS();
+  else if(S.tab===3) content=renderFornecedores();
+  else if(S.tab===4) content=renderAlertas();
+  else if(S.tab===5) content=renderOrcamento();
+
+  document.getElementById('app').innerHTML=`
+    <div class="header-wrap">
+      <div class="logo-wrap">
+        <div class="logo-icon">🚛</div>
+        <div><div class="logo-name">FleetCommand</div><div class="logo-sub">Gestão de Frotas</div></div>
+      </div>
+      <div style="display:flex;gap:2px;flex-wrap:wrap;padding:.5rem 0">${tabBtns}</div>
+    </div>
+    <div class="content-wrap">${sqlBanner}${filtroBar}${content}</div>`;
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const gc=gastosCat(), gv=gastosV(), gf=gastosF();
+  const tg=totalGasto(), to=totalOrc();
+  const catsExibir=S.filtroCategoria ? CATEGORIAS.filter(c=>c.id===S.filtroCategoria) : CATEGORIAS;
+
+  const filtroBanner=S.filtroCategoria ? (()=>{
+    const cat=CATEGORIAS.find(c=>c.id===S.filtroCategoria);
+    return `<div class="card" style="background:${cat.bg};border-color:${cat.color}60;padding:.7rem 1.25rem;display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="width:10px;height:10px;border-radius:2px;background:${cat.color};flex-shrink:0"></span>
+      <span style="font-size:13px;font-weight:500;color:${cat.color}">Filtrando: ${cat.label}</span>
+      <button class="btn" onclick="setCat('')" style="margin-left:auto;font-size:11px">✕ Ver todos</button>
+    </div>`;
+  })() : '';
+
+  const kpis=[
+    {l:'Total alocado',    v:fmt(tg),        c:'#E24B4A'},
+    {l:'Orçamento total',  v:fmt(to),        c:'#185FA5'},
+    {l:'Saldo disponível', v:fmt(to-tg),     c:to-tg>=0?'#1D9E75':'#E24B4A'},
+    {l:'OS no mês',        v:osNoMesFilt().length, c:'#533CB7'},
+    {l:'Frota',            v:S.veiculos.length+' veículos', c:'#1a1a1a'},
+  ].map(x=>`<div class="metric"><div class="metric-label">${x.l}</div><div class="metric-value" style="color:${x.c}">${x.v}</div></div>`).join('');
+
+  // Orçamento por categoria (pbar simples)
+  const orcCats=catsExibir.map(cat=>{
+    const real=gc[cat.id]||0, orc=orcDaCat(cat.id);
+    return `
+    <div style="margin-bottom:13px">
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:2px">
+        <span style="width:9px;height:9px;border-radius:2px;background:${cat.color};display:inline-block;flex-shrink:0"></span>
+        ${cat.label}
+        <b style="margin-left:auto;color:#E24B4A">${fmt(real)}</b>
+        <span style="color:#aaa">/ ${fmt(orc)}</span>
+      </div>
+      ${pbar(real, 0, orc, cat.color)}
+    </div>`;
+  }).join('');
+
+  // Impacto por veículo
+  const veicSorted=[...S.veiculos].sort((a,b)=>(gv[b.id]||0)-(gv[a.id]||0));
+  const impVeic=veicSorted.map((v,i)=>{
+    const real=gv[v.id]||0, tot=tg||1;
+    const col=i===0?'#E24B4A':'#185FA5';
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:1px">
+        <span><b style="color:${i===0?'#E24B4A':'#888'}">#${i+1}</b> ${v.placa} — ${v.modelo}</span>
+        <b style="color:#E24B4A">${fmt(real)}</b>
+      </div>
+      <div class="pbar-track" style="height:7px">
+        <div class="pbar-real" style="width:${pct(real,tot)}%;background:${col}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Fornecedores
+  const fornSorted=[...S.fornecedores].sort((a,b)=>(gf[b.id]||0)-(gf[a.id]||0));
+  const tblForn=fornSorted.map((f,i)=>`
+    <tr>
+      <td><b style="color:${i===0?'#E24B4A':'#888'}">${i+1}</b></td>
+      <td>${f.nome}</td>
+      <td><b style="color:#E24B4A">${fmt(gf[f.id]||0)}</b></td>
+      <td>${pct(gf[f.id]||0,tg)}%</td>
+    </tr>`).join('');
+
+  // OS do mês
+  const osMes=[...osNoMesFilt()].sort((a,b)=>Number(b.valor)-Number(a.valor)).slice(0,6);
+  const tblOS=osMes.map(o=>{
+    const cat=CATEGORIAS.find(c=>c.id===o.categoria)||CATEGORIAS[0];
+    const isAberta=o.status==='Aberta';
+    return `<tr${isAberta?' class="os-aberta"':''}>
+      <td>${badge(o.numero,'#533CB7','#EEEDFE')}</td>
+      <td>${o.descricao||''}</td>
+      <td>${badge(cat.label,cat.color,cat.bg)}</td>
+      <td><b style="color:${isAberta?'#BA7517':'#E24B4A'}">${fmt(o.valor)}</b>
+          ${isAberta?'<div style="font-size:9px;color:#BA7517">aberta</div>':''}</td>
+    </tr>`;
+  }).join('');
+
+  // Alertas
+  const alertCards=[...S.alertas].sort((a,b)=>new Date(a.vencimento)-new Date(b.vencimento)).map(a=>{
+    const v=S.veiculos.find(x=>x.id===a.veiculo_id), st=stAlerta(a.vencimento);
+    return `<div style="background:${st.bg};border-radius:10px;padding:10px 14px;min-width:140px;border:1px solid ${st.color}22">
+      <div style="font-size:11px;color:${st.color};font-weight:500">${a.tipo}</div>
+      <div style="font-size:13px;font-weight:500;margin:2px 0">${v?.placa||'—'}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:4px">${a.vencimento}</div>
+      ${badge(st.label==='Vencido'?'Vencido':'Em '+st.label,st.color,'transparent')}
+    </div>`;
+  }).join('');
+
+  return `
+    ${filtroBanner}
+    <div class="grid-metrics">${kpis}</div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="sec-title">Orçamento por categoria — <span style="color:#185FA5;font-weight:600;text-transform:capitalize">${nomeMes(S.mesSelecionado)}</span></div>
+        ${orcCats||'<p style="font-size:12px;color:#aaa">Nenhum gasto alocado neste mês.</p>'}
+        <div style="display:flex;gap:12px;font-size:10px;color:#888;margin-top:8px">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#185FA5;border-radius:2px;margin-right:3px"></span>Alocado</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#ebebea;border-radius:2px;margin-right:3px"></span>Disponível</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-title">Impacto por veículo</div>
+        ${impVeic||'<p style="font-size:12px;color:#aaa">Nenhum gasto alocado neste mês.</p>'}
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="sec-title">Fornecedores por impacto</div>
+        <div class="overflow-x">
+          <table><thead><tr><th>#</th><th>Fornecedor</th><th>Total alocado</th><th>%</th></tr></thead>
+          <tbody>${tblForn||'<tr><td colspan="4" style="color:#aaa;text-align:center;padding:16px">Sem dados no mês</td></tr>'}</tbody></table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-title">OS alocadas no mês</div>
+        <div class="overflow-x">
+          <table><thead><tr><th>OS</th><th>Descrição</th><th>Categoria</th><th>Valor</th></tr></thead>
+          <tbody>${tblOS||'<tr><td colspan="4" style="color:#aaa;text-align:center;padding:16px">Nenhuma OS alocada neste mês</td></tr>'}</tbody></table>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="sec-title">Alertas de vencimento</div>
+      ${alertCards?`<div style="display:flex;gap:10px;flex-wrap:wrap">${alertCards}</div>`:'<p style="font-size:12px;color:#aaa">Nenhum alerta cadastrado.</p>'}
+    </div>`;
+}
+
+// ── Veículos ─────────────────────────────────────────────────────────────────
+function renderVeiculos() {
+  const gv=gastosV();
+  const sorted=[...S.veiculos].sort((a,b)=>(gv[b.id]||0)-(gv[a.id]||0));
+
+  function editRow(data) {
+    const tipoOpts=TIPOS.map(t=>`<option${t===data.tipo?' selected':''}>${t}</option>`).join('');
+    return `<tr style="background:#eef4fb">
+      <td class="ec"><input autocomplete="off" value="${data.placa||''}" oninput="updE('v','placa',this.value)" placeholder="ABC-1234" style="width:95px"></td>
+      <td class="ec"><input autocomplete="off" value="${data.modelo||''}" oninput="updE('v','modelo',this.value)" placeholder="Modelo"></td>
+      <td class="ec"><input autocomplete="off" type="number" value="${data.ano||2024}" oninput="updE('v','ano',this.value)" style="width:68px"></td>
+      <td class="ec"><input autocomplete="off" type="number" value="${data.km||0}" oninput="updE('v','km',this.value)" style="width:85px"></td>
+      <td class="ec"><input autocomplete="off" value="${data.responsavel||''}" oninput="updE('v','responsavel',this.value)" placeholder="Responsável"></td>
+      <td class="ec"><select oninput="updE('v','tipo',this.value)">${tipoOpts}</select></td>
+      <td class="ec" style="white-space:nowrap">
+        <button class="btn btn-g" onclick="salvarVeiculo()">Salvar</button>
+        <button class="btn" onclick="cancelE('v')" style="margin-left:4px">Cancelar</button>
+      </td>
+    </tr>`;
+  }
+
+  const rows=sorted.map((v,i)=> E.vId===v.id ? editRow(E.vData) : `
+    <tr>
+      <td><b style="color:${i===0?'#E24B4A':'#1a1a1a'}">${v.placa}</b></td>
+      <td>${v.modelo}</td><td>${v.ano}</td>
+      <td>${Number(v.km).toLocaleString('pt-BR')} km</td>
+      <td>${v.responsavel||'—'}</td>
+      <td>${badge(v.tipo,'#185FA5','#E6F1FB')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn" onclick="editVeiculo('${v.id}')">Editar</button>
+        <button class="btn btn-r" onclick="deletarVeiculo('${v.id}')" style="margin-left:4px">Remover</button>
+      </td>
+    </tr>`).join('');
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="sec-title">Veículos</div>
+      <button class="btn btn-p" onclick="novoVeiculo()">+ Novo veículo</button>
+    </div>
+    <div class="overflow-x">
+      <table><thead><tr>
+        <th>Placa</th><th>Modelo</th><th>Ano</th><th>KM</th><th>Responsável</th><th>Tipo</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${E.vId==='new' ? editRow(E.vData) : ''}
+        ${rows}
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+// ── Ordens de Serviço ─────────────────────────────────────────────────────────
+function renderOS() {
+  // Ordenar: fechadas primeiro por valor desc, abertas depois por valor desc
+  const fechadas=S.os.filter(o=>o.status==='Fechada').sort((a,b)=>Number(b.valor)-Number(a.valor));
+  const abertas =S.os.filter(o=>o.status==='Aberta').sort((a,b)=>Number(b.valor)-Number(a.valor));
+  const allOS=[...fechadas,...abertas];
+  const d=E.osData;
+
+  // Select duplo mês+ano inline (fora da edição) — salva imediatamente
+  function selMesAnoInline(osId, mesSalvo) {
+    const [yS='',moS=''] = (mesSalvo||'').split('-');
+    const sid = 'os'+osId.toString().replace(/-/g,''); // remove hífens do UUID
+    const opsMes = NOMES_MESES.map((n,i)=>{
+      const v=String(i+1).padStart(2,'0');
+      return `<option value="${v}"${v===moS?' selected':''}>${n}</option>`;
+    }).join('');
+    const opsAno = ANOS_ORC.map(y=>`<option value="${y}"${String(y)===yS?' selected':''}>${y}</option>`).join('');
+    const temMes = !!mesSalvo;
+    return `<div style="display:flex;flex-direction:column;gap:3px">
+      <div style="display:flex;gap:3px">
+        <select id="mes-${sid}" style="flex:1;min-width:88px;font-size:11px;padding:3px 4px;
+          border:1.5px solid ${temMes?'#185FA5':'#d0d0cc'};border-radius:5px;
+          color:${temMes?'#185FA5':'#aaa'};font-weight:${temMes?600:400};
+          background:${temMes?'#f0f7ff':'#fff'}"
+          onchange="atualizarOrcMes('${osId}','${sid}')">
+          <option value="">Mês</option>${opsMes}
+        </select>
+        <select id="ano-${sid}" style="width:58px;font-size:11px;padding:3px 4px;
+          border:1.5px solid ${temMes?'#185FA5':'#d0d0cc'};border-radius:5px;
+          color:${temMes?'#185FA5':'#aaa'};font-weight:${temMes?600:400};
+          background:${temMes?'#f0f7ff':'#fff'}"
+          onchange="atualizarOrcMes('${osId}','${sid}')">
+          <option value="">Ano</option>${opsAno}
+        </select>
+      </div>
+      ${temMes
+        ? `<div style="font-size:9px;color:#185FA5;text-align:center">✓ ${nomeMesCurto(mesSalvo)}</div>`
+        : `<div style="font-size:9px;color:#aaa;text-align:center">sem alocação</div>`}
+    </div>`;
+  }
+
+  // Select duplo mês+ano na linha de edição completa
+  function selMesAnoEdit(mesSalvo) {
+    const [yS='',moS=''] = (mesSalvo||'').split('-');
+    const opsMes = NOMES_MESES.map((n,i)=>{
+      const v=String(i+1).padStart(2,'0');
+      return `<option value="${v}"${v===moS?' selected':''}>${n}</option>`;
+    }).join('');
+    const opsAno = ANOS_ORC.map(y=>`<option value="${y}"${String(y)===yS?' selected':''}>${y}</option>`).join('');
+    return `<div style="display:flex;flex-direction:column;gap:3px;min-width:155px">
+      <div style="display:flex;gap:3px">
+        <select id="edit-mes" style="flex:1;font-size:11px;padding:3px 4px;border:1.5px solid #185FA5;border-radius:5px;color:#185FA5;font-weight:600;background:#f0f7ff"
+          onchange="updCompostoMes()">
+          <option value="">Mês</option>${opsMes}
+        </select>
+        <select id="edit-ano" style="width:58px;font-size:11px;padding:3px 4px;border:1.5px solid #185FA5;border-radius:5px;color:#185FA5;font-weight:600;background:#f0f7ff"
+          onchange="updCompostoMes()">
+          <option value="">Ano</option>${opsAno}
+        </select>
+      </div>
+    </div>`;
+  }
+
+  const veicOpts=`<option value="">--</option>${S.veiculos.map(v=>`<option value="${v.id}"${v.id==d.veiculo_id?' selected':''}>${v.placa}</option>`).join('')}<optgroup label="─────"><option value="oficina"${d.veiculo_id==='oficina'?' selected':''}>Oficina</option><option value="estoque"${d.veiculo_id==='estoque'?' selected':''}>Estoque</option></optgroup>`;
+  const fornOpts=`<option value="">--</option>${S.fornecedores.map(f=>`<option value="${f.id}"${f.id==d.fornecedor_id?' selected':''}>${f.nome}</option>`).join('')}`;
+  const catOpts =CATEGORIAS.map(c=>`<option value="${c.id}"${c.id===d.categoria?' selected':''}>${c.label}</option>`).join('');
+
+  const editRow=`<tr style="background:#eef4fb">
+    <td class="ec"><input autocomplete="off" value="${d.numero||''}" oninput="updE('os','numero',this.value)" style="width:100px" placeholder="Nº OS"></td>
+    <td class="ec"><select onchange="updE('os','veiculo_id',this.value)" style="width:100px">${veicOpts}</select></td>
+    <td class="ec"><select onchange="updE('os','categoria',this.value)" style="width:115px">${catOpts}</select></td>
+    <td class="ec"><input autocomplete="off" value="${d.descricao||''}" oninput="updE('os','descricao',this.value)" placeholder="Descrição" style="width:120px"></td>
+    <td class="ec"><select onchange="updE('os','fornecedor_id',this.value)" style="width:115px">${fornOpts}</select></td>
+    <td class="ec"><input autocomplete="off" value="${d.nf||''}" oninput="updE('os','nf',this.value)" placeholder="NF" style="width:85px"></td>
+    <td class="ec"><input autocomplete="off" value="${d.conta_orcamentaria||''}" oninput="updE('os','conta_orcamentaria',this.value)" placeholder="Conta" style="width:85px"></td>
+    <td class="ec"><input type="date" value="${d.data_abertura||''}" onchange="updE('os','data_abertura',this.value)" style="width:108px"></td>
+    <td class="ec"><input type="date" value="${d.data_fechamento||''}" onchange="updE('os','data_fechamento',this.value)" style="width:108px"></td>
+    <td class="ec"><select onchange="updE('os','status',this.value)" style="width:82px">
+      <option${d.status==='Aberta'?' selected':''}>Aberta</option>
+      <option${d.status==='Fechada'?' selected':''}>Fechada</option>
+    </select></td>
+    <td class="ec td-orc" style="min-width:165px">${selMesAnoEdit(d.orcamento_mes||'')}</td>
+    <td class="ec"><input type="number" value="${d.valor||''}" oninput="updE('os','valor',this.value)" placeholder="Valor" style="width:85px"></td>
+    <td class="ec" style="white-space:nowrap">
+      <button class="btn btn-g" onclick="salvarOS()">Salvar</button>
+      <button class="btn" onclick="cancelE('os')" style="margin-left:4px">✕</button>
+    </td>
+  </tr>`;
+
+  const rows=allOS.map(o=>{
+    if(E.osId===o.id) return editRow;
+    const v=S.veiculos.find(x=>x.id==o.veiculo_id);
+    const veicLabel=o.veiculo_id==='oficina'?'🔧 Oficina':o.veiculo_id==='estoque'?'📦 Estoque':v?.placa||'—';
+    const f=S.fornecedores.find(x=>x.id==o.fornecedor_id);
+    const cat=CATEGORIAS.find(c=>c.id===o.categoria)||CATEGORIAS[0];
+    const isAberta=o.status==='Aberta';
+    return `<tr${isAberta?' class="os-aberta"':''}>
+      <td>${badge(o.numero,'#533CB7','#EEEDFE')}</td>
+      <td>${veicLabel}</td>
+      <td>${badge(cat.label,cat.color,cat.bg)}</td>
+      <td>${o.descricao||''}</td>
+      <td>${f?.nome||'—'}</td>
+      <td>${o.nf||''}</td>
+      <td>${o.conta_orcamentaria||''}</td>
+      <td style="color:#888">${o.data_abertura||'—'}</td>
+      <td style="color:#888">${o.data_fechamento||'—'}</td>
+      <td>${badge(o.status,isAberta?'#BA7517':'#1D9E75',isAberta?'#FAEEDA':'#E1F5EE')}</td>
+      <td class="td-orc" style="min-width:165px">${selMesAnoInline(o.id, o.orcamento_mes||'')}</td>
+      <td><b style="color:${isAberta?'#BA7517':'#1a1a1a'}">${fmt(o.valor)}</b>
+          ${isAberta?'<div style="font-size:9px;color:#BA7517">aberta</div>':''}</td>
+      <td><button class="btn" onclick="editOS('${o.id}')">Editar</button></td>
+    </tr>`;
+  }).join('');
+
+  const semMes=S.os.filter(o=>!o.orcamento_mes).length;
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div class="sec-title">Ordens de Serviço</div>
+        <div style="font-size:11px;color:#888">
+          ${fechadas.length} fechadas · <span style="color:#BA7517">${abertas.length} abertas</span>
+          ${semMes>0?` · <span style="color:#E24B4A">⚠ ${semMes} sem mês de orçamento</span>`:''}
+        </div>
+      </div>
+      <button class="btn btn-p" onclick="novaOS()">+ Nova OS</button>
+    </div>
+    <div class="overflow-x">
+      <table><thead><tr>
+        <th>Nº OS</th><th>Veículo</th><th>Categoria</th><th>Descrição</th><th>Fornecedor</th>
+        <th>NF</th><th>Conta Orc.</th><th>Abertura</th><th>Fechamento</th><th>Status</th>
+        <th class="th-orc">📅 Orçamento Mês</th>
+        <th>Valor</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${E.osId==='new' ? editRow : ''}
+        ${rows}
+      </tbody></table>
+    </div>
+    <div style="margin-top:12px;padding:10px 14px;background:#f0f7ff;border-radius:8px;border:1px solid #185FA530;font-size:11px;color:#185FA5">
+      💡 <b>Como funciona:</b> Selecione o mês na coluna <b>Orçamento Mês</b> para alocar o valor da OS no orçamento daquele mês.
+      O valor será subtraído do orçamento da categoria (<b>Conta Orc.</b>) no Painel Geral e na tela de Orçamento.
+      Status, data de abertura e fechamento <b>não afetam</b> os cálculos de orçamento.
+    </div>
+  </div>`;
+}
+
+// ── Fornecedores ──────────────────────────────────────────────────────────────
+function renderFornecedores() {
+  const d=E.fData;
+  const catOpts=CATEGORIAS.map(c=>`<option value="${c.id}"${c.id===d.categoria?' selected':''}>${c.label}</option>`).join('');
+
+  const editRow=`<tr style="background:#eef4fb">
+    <td class="ec"><input value="${d.nome||''}" oninput="updE('f','nome',this.value)" placeholder="Nome"></td>
+    <td class="ec"><input value="${d.cnpj||''}" oninput="updE('f','cnpj',this.value)" placeholder="CNPJ"></td>
+    <td class="ec"><input value="${d.contato||''}" oninput="updE('f','contato',this.value)" placeholder="Contato"></td>
+    <td class="ec"><select oninput="updE('f','categoria',this.value)">${catOpts}</select></td>
+    <td class="ec" style="white-space:nowrap">
+      <button class="btn btn-g" onclick="salvarForn()">Salvar</button>
+      <button class="btn" onclick="cancelE('f')" style="margin-left:4px">Cancelar</button>
+    </td>
+  </tr>`;
+
+  const rows=S.fornecedores.map(f=>{
+    if(E.fId===f.id) return editRow;
+    const cat=CATEGORIAS.find(c=>c.id===f.categoria)||CATEGORIAS[0];
+    return `<tr>
+      <td><b>${f.nome}</b></td>
+      <td>${f.cnpj||''}</td>
+      <td>${f.contato||''}</td>
+      <td>${badge(cat.label,cat.color,cat.bg)}</td>
+      <td><button class="btn" onclick="editForn('${f.id}')">Editar</button></td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="sec-title">Fornecedores</div>
+      <button class="btn btn-p" onclick="novoForn()">+ Novo fornecedor</button>
+    </div>
+    <table><thead><tr>
+      <th>Nome</th><th>CNPJ</th><th>Contato</th><th>Categoria</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${E.fId==='new' ? editRow : ''}
+      ${rows}
+    </tbody></table>
+  </div>`;
+}
+
+// ── Alertas ───────────────────────────────────────────────────────────────────
+function renderAlertas() {
+  const sorted=[...S.alertas].sort((a,b)=>new Date(a.vencimento)-new Date(b.vencimento));
+  const d=E.aData;
+  const veicOpts=S.veiculos.map(v=>`<option value="${v.id}"${v.id==d.veiculo_id?' selected':''}>${v.placa} — ${v.modelo}</option>`).join('');
+
+  const editRow=`<tr style="background:#eef4fb">
+    <td class="ec"><select oninput="updE('a','veiculo_id',this.value)">${veicOpts}</select></td>
+    <td class="ec"><select oninput="updE('a','tipo',this.value)">
+      ${ALERT_TIPOS.map(t=>`<option${t===d.tipo?' selected':''}>${t}</option>`).join('')}
+    </select></td>
+    <td class="ec"><input type="date" value="${d.vencimento||''}" oninput="updE('a','vencimento',this.value)"></td>
+    <td class="ec">—</td>
+    <td class="ec" style="white-space:nowrap">
+      <button class="btn btn-g" onclick="salvarAlerta()">Salvar</button>
+      <button class="btn" onclick="cancelE('a')" style="margin-left:4px">Cancelar</button>
+    </td>
+  </tr>`;
+
+  const rows=sorted.map(a=>{
+    const v=S.veiculos.find(x=>x.id===a.veiculo_id), st=stAlerta(a.vencimento);
+    return `<tr>
+      <td>${v?.placa||'—'} — ${v?.modelo||''}</td>
+      <td><b>${a.tipo}</b></td>
+      <td>${a.vencimento}</td>
+      <td>${badge(st.label==='Vencido'?'Vencido':'Em '+st.label,st.color,st.bg)}</td>
+      <td><button class="btn btn-r" onclick="removerAlerta('${a.id}')">Remover</button></td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="sec-title">Alertas e vencimentos</div>
+      <button class="btn btn-p" onclick="novoAlerta()">+ Novo alerta</button>
+    </div>
+    <table><thead><tr>
+      <th>Veículo</th><th>Tipo</th><th>Vencimento</th><th>Status</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${E.aId==='new' ? editRow : ''}
+      ${rows}
+    </tbody></table>
+  </div>`;
+}
+
+// ── Orçamento ─────────────────────────────────────────────────────────────────
+function renderOrcamento() {
+  const gc=gastosCat(), tg=totalGasto(), to=totalOrc();
+
+  const catCards=CATEGORIAS.map(cat=>{
+    const real=gc[cat.id]||0;
+    const orc=orcDaCat(cat.id);   // <-- usa cat|mes, independente por mês
+    const saldo=orc-real;
+    // OS alocadas neste mês nesta categoria
+    const osNaCat=osNoMes().filter(o=>o.categoria===cat.id);
+    const listaOS=osNaCat.length>0
+      ? `<div style="margin-top:8px;border-top:1px solid ${cat.color}20;padding-top:8px">
+          <div style="font-size:10px;color:#888;margin-bottom:4px">OS alocadas (${osNaCat.length}):</div>
+          ${osNaCat.map(o=>`
+            <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid #f0f0f0">
+              <span style="color:#555">${badge(o.numero,'#533CB7','#EEEDFE')} ${o.descricao||''}</span>
+              <b style="color:#E24B4A;white-space:nowrap;margin-left:8px">${fmt(o.valor)}</b>
+            </div>`).join('')}
+        </div>`
+      : `<div style="font-size:11px;color:#aaa;margin-top:6px">Nenhuma OS alocada neste mês</div>`;
+
+    return `<div style="border:1px solid ${cat.color}40;border-radius:10px;padding:1rem">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">
+        <span style="width:10px;height:10px;border-radius:2px;background:${cat.color};flex-shrink:0"></span>
+        <b style="font-size:13px">${cat.label}</b>
+      </div>
+      <div style="font-size:11px;color:#888;margin-bottom:3px">Valor orçado (R$)</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+        <input type="number" id="orc-input-${cat.id}" value="${orc}" min="0" step="100"
+          style="flex:1"
+          onkeydown="if(event.key==='Enter'){salvarOrcInputById('${cat.id}')}"
+          placeholder="0">
+        <button onclick="salvarOrcInputById('${cat.id}')"
+          style="padding:5px 12px;border-radius:6px;border:none;background:#185FA5;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">
+          Salvar
+        </button>
+      </div>
+      <div id="pbar-${cat.id}">${pbar(real,0,orc,cat.color)}</div>
+      <div id="saldo-${cat.id}" style="font-size:11px;color:#888;margin-top:6px;display:flex;justify-content:space-between">
+        <span>✅ Alocado: <b style="color:#E24B4A">${fmt(real)}</b></span>
+        <span style="color:${saldo>=0?'#1D9E75':'#E24B4A'}">saldo ${fmt(saldo)}</span>
+      </div>
+      ${listaOS}
+    </div>`;
+  }).join('');
+
+  const resumo=[
+    {l:'Orçamento total',  v:fmt(to),    c:'#185FA5'},
+    {l:'Total alocado',    v:fmt(tg),    c:'#E24B4A'},
+    {l:'Saldo restante',   v:fmt(to-tg), c:(to-tg)>=0?'#1D9E75':'#E24B4A'},
+    {l:'% consumido',      v:pct(tg,to)+'%', c:pct(tg,to)>80?'#E24B4A':'#BA7517'},
+  ].map(x=>`<div class="metric"><div class="metric-label">${x.l}</div><div class="metric-value" style="color:${x.c}">${x.v}</div></div>`).join('');
+
+  return `
+    <div class="card">
+      <div class="sec-title">Orçamento por categoria — <span style="color:#185FA5;font-weight:600;text-transform:capitalize">${nomeMes(S.mesSelecionado)}</span></div>
+      <p style="font-size:12px;color:#888;margin-bottom:16px">
+        Cada mês tem seu próprio orçamento. Altere o mês acima para configurar ou visualizar outro período.
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+        ${catCards}
+      </div>
+    </div>
+    <div class="card">
+      <div class="sec-title">Resumo orçamentário</div>
+      <div class="grid-metrics">${resumo}</div>
+    </div>`;
+}
+
+// ── Event handlers globais ───────────────────────────────────────────────────
+// Lê o input pelo id e chama salvarOrcamento — evita onchange problemático
+window.salvarOrcInputById = (catId) => {
+  const el = document.getElementById('orc-input-'+catId);
+  if(!el) return;
+  salvarOrcamento(catId, el.value);
+};
+
+window.setTab  = i => { S.tab=i; E={vId:null,vData:{},fId:null,fData:{},osId:null,osData:{},aId:null,aData:{}}; render(); };
+window.setMes  = v => { S.mesSelecionado=v; render(); };
+window.setCat  = v => { S.filtroCategoria=v; render(); };
+// Chamado pelos selects duplos do filtro global
+window.setMesDuplo = (ano, mes) => {
+  if(ano && mes) { S.mesSelecionado=ano+'-'+mes; render(); }
+};
+// Chamado pelos selects inline de cada OS — salva imediatamente no banco
+window.atualizarOrcMes = (osId, sid) => {
+  const mo = document.getElementById('mes-'+sid)?.value;
+  const yr = document.getElementById('ano-'+sid)?.value;
+  if(mo && yr) salvarOrcMes(osId, yr+'-'+mo);
+};
+// Chamado pelos selects na linha de edição completa
+window.updCompostoMes = () => {
+  const mo = document.getElementById('edit-mes')?.value;
+  const yr = document.getElementById('edit-ano')?.value;
+  if(mo && yr) updE('os','orcamento_mes', yr+'-'+mo);
+};
+window.updE    = (t,k,v) => { if(t==='v')E.vData[k]=v; else if(t==='f')E.fData[k]=v; else if(t==='os')E.osData[k]=v; else if(t==='a')E.aData[k]=v; };
+window.cancelE = t => { if(t==='v')E.vId=null; else if(t==='f')E.fId=null; else if(t==='os')E.osId=null; else if(t==='a')E.aId=null; render(); };
+
+window.novoVeiculo = () => { E.vId='new'; E.vData={placa:'',modelo:'',ano:2024,km:0,responsavel:'',tipo:'Caminhão'}; render(); };
+window.editVeiculo = id => { const v=S.veiculos.find(x=>x.id===id); E.vId=id; E.vData={...v}; render(); };
+window.novoForn    = () => { E.fId='new'; E.fData={nome:'',cnpj:'',contato:'',categoria:'manutencao'}; render(); };
+window.editForn    = id => { const f=S.fornecedores.find(x=>x.id===id); E.fId=id; E.fData={...f}; render(); };
+window.novaOS      = () => {
+  E.osId='new';
+  E.osData={numero:'',veiculo_id:'',fornecedor_id:'',categoria:'manutencao',descricao:'',valor:'',
+    nf:'',conta_orcamentaria:'',data_abertura:new Date().toISOString().split('T')[0],
+    data_fechamento:'',status:'Aberta',orcamento_mes:''};
+  render();
+};
+window.editOS      = id => { const o=S.os.find(x=>x.id===id); E.osId=id; E.osData={...o}; render(); };
+window.novoAlerta  = () => { E.aId='new'; E.aData={veiculo_id:S.veiculos[0]?.id||'',tipo:'IPVA',vencimento:''}; render(); };
+
+window.salvarVeiculo  = salvarVeiculo;
+window.salvarForn     = salvarForn;
+window.salvarOS       = salvarOS;
+window.salvarAlerta   = salvarAlerta;
+window.removerAlerta  = removerAlerta;
+window.deletarVeiculo = deletarVeiculo;
+window.salvarOrcamento= salvarOrcamento;
+window.salvarOrcMes   = salvarOrcMes;
+
+loadAll();
+</script>
+</body>
+</html>
